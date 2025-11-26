@@ -1,95 +1,160 @@
-// src/scripts/syncPinecone.js
-
-import "dotenv/config";
-import mongoose from "mongoose";
-import Sales from "../models/SaleModel.js";
-
+// syncPinecone.js
 import { Pinecone } from "@pinecone-database/pinecone";
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import OpenAI from "openai";
 
-// Embeddings de Gemini
-const embedder = new GoogleGenerativeAIEmbeddings({
-  model: "text-embedding-004",
-  apiKey: process.env.GEMINI_API_KEY
-});
+dotenv.config();
 
+// ------------------------
+//  CONFIGURACIÓN
+// ------------------------
+const MONGO_URI = process.env.MONGO_URI;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
+const INDEX_NAME = "ventas";
+
+// Tamaño del batch para procesar ventas
+const BATCH_SIZE = 100;
+
+// ------------------------
+// Conexión a MongoDB
+// ------------------------
+async function connectMongo() {
+  console.log("🔌 Conectando a MongoDB...");
+
+  await mongoose.connect(MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+  });
+
+  console.log("✔ MongoDB conectado");
+}
+
+// ------------------------
+// Modelo MongoDB
+// ------------------------
+const VentasSchema = new mongoose.Schema({}, { strict: false });
+const VentasModel = mongoose.model("ventas", VentasSchema);
+
+// ------------------------
+// Conexión Pinecone + OpenAI
+// ------------------------
 const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY,
+  apiKey: PINECONE_API_KEY,
 });
 
-const index = pinecone.index(process.env.PINECONE_INDEX);
-const namespace = index.namespace("ventas");
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
+});
 
-function buildText(sale) {
-  return `
-    Cliente: ${sale.Cliente}
-    Nombre: ${sale.Nombre}
-    Artículo: ${sale.Articulo}
-    Nombre Artículo: ${sale.NombreArticulo}
-    Cantidad: ${sale.Cantidad}
-    Precio Unitario: ${sale["P. Unit."]}
-    Monto Total: ${sale.MontoTotal}
-    Provincia: ${sale.Provincia}
-    Fecha: ${sale.Fecha}
-  `;
+// ------------------------
+// Embeddings helper
+// ------------------------
+async function embedText(text) {
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-large",
+    input: text,
+  });
+
+  return response.data[0].embedding;
 }
 
+// ------------------------
+// Procesar ventas y subirlas a Pinecone
+// ------------------------
 async function run() {
-  try {
-    console.log("🔌 Conectando a MongoDB...");
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log("✔ MongoDB conectado");
+  await connectMongo();
 
-    console.log("📦 Obteniendo ventas desde Mongo...");
-    const sales = await Sales.find();
-    console.log("📄 Total de documentos:", sales.length);
-console.log(await Sales.findOne());
-    const batchSize = 100;
+  const index = pinecone.index(INDEX_NAME);
 
-    for (let i = 0; i < sales.length; i += batchSize) {
-      const batch = sales.slice(i, i + batchSize);
-      const batchNumber = Math.ceil(i / batchSize) + 1;
+  console.log("📦 Obteniendo ventas desde Mongo...");
 
-      console.log(`🚀 Procesando batch ${batchNumber}`);
+  const totalCount = await VentasModel.countDocuments();
+  console.log(`📄 Total de documentos: ${totalCount}`);
 
-      const vectors = await Promise.all(
-        batch.map(async (sale) => {
-          const text = buildText(sale);
+  const cursor = VentasModel.find().lean().cursor();
 
-          // 🔥 Generar embedding
-          const embedding = await embedder.embedQuery(text);
+  let batchDocs = [];
+  let processed = 0;
+  let batchNumber = 1;
 
-          // 🧪 DIAGNÓSTICO: mostrar primeras posiciones del embedding
-          console.log("Embedding sample:", embedding.slice(0, 5));
+  for await (const sale of cursor) {
+    batchDocs.push(sale);
 
-          return {
-            id: String(sale._id),
-            values: embedding,
-            metadata: {
-              Cliente: sale.Cliente,
-              Nombre: sale.Nombre,
-              Articulo: sale.Articulo,
-              NombreArticulo: sale.NombreArticulo,
-              Cantidad: sale.Cantidad,
-              PrecioUnit: sale["P. Unit."],
-              MontoTotal: sale.MontoTotal,
-              Provincia: sale.Provincia,
-              Fecha: sale.Fecha,
-            }
-          };
-        })
-      );
-
-      await namespace.upsert(vectors);
+    if (batchDocs.length >= BATCH_SIZE) {
+      await processBatch(batchDocs, index, batchNumber, processed);
+      processed += batchDocs.length;
+      batchDocs = [];
+      batchNumber++;
     }
-
-    console.log("🎉 Proceso completado — Datos enviados a Pinecone");
-    process.exit(0);
-
-  } catch (err) {
-    console.error("❌ Error:", err);
-    process.exit(1);
   }
+
+  if (batchDocs.length > 0) {
+    await processBatch(batchDocs, index, batchNumber, processed);
+  }
+
+  console.log("🎉 Sincronización completa");
+  process.exit(0);
 }
 
-run();
+// ------------------------
+// Procesar batch individual
+// ------------------------
+async function processBatch(batchDocs, index, batchNumber, processed) {
+  console.log(`🚀 Procesando batch ${batchNumber} (${processed} procesados)`);
+
+  const texts = batchDocs.map((sale) => {
+    return `${sale.Cliente} compró ${sale.Cantidad} unidades de ${sale.NombreArticulo} (artículo ${sale.Articulo}) el ${sale.Fecha}`;
+  });
+
+  const embeddingResponse = await openai.embeddings.create({
+    model: "text-embedding-3-large",
+    input: texts,
+  });
+
+  const embeddings = embeddingResponse.data.map((e) => e.embedding);
+
+  const salesBatch = batchDocs.map((sale, index) => {
+    const id = `${sale.CUIT}-${sale.Articulo}-${sale.Fecha}`;
+
+    // 📌 METADATA ESTRUCTURADA (clave para responder correctamente)
+    const structuredMetadata = {
+      idVenta: id,
+      year: new Date(sale.Fecha).getFullYear(),
+      fecha: sale.Fecha,
+      comprobante: sale.Comprobante ?? "",
+      cliente: sale.Cliente ?? "",
+      nombreCliente: sale.Nombre ?? "",
+      cuit: sale.CUIT ?? "",
+      codigoArticulo: sale.Articulo ?? "",
+      nombreArticulo: sale.NombreArticulo ?? "",
+      descripcion: sale["Desc.Adicional"] ?? "",
+      cantidad: Number(sale.Cantidad) || 0,
+      precioUnitario: Number(sale["P. Unit."]) || 0,
+      subtotal:
+        (Number(sale.Cantidad) || 0) * (Number(sale["P. Unit."]) || 0),
+    };
+
+    return {
+      id,
+      values: embeddings[index],
+      metadata: {
+        text: texts[index],
+        structured: structuredMetadata,
+      },
+    };
+  });
+
+  // Subir batch al índice
+  await index.upsert(salesBatch);
+
+  console.log(`📤 Batch ${batchNumber} subido correctamente`);
+}
+
+// ------------------------
+// Iniciar script
+// ------------------------
+run().catch((err) => {
+  console.error("❌ Error en la sincronización:", err);
+  process.exit(1);
+});
