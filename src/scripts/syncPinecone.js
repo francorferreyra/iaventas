@@ -2,159 +2,206 @@
 import { Pinecone } from "@pinecone-database/pinecone";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import Sale from "../models/SaleModel.js";
 
 dotenv.config();
 
-// ------------------------
-//  CONFIGURACIÓN
-// ------------------------
-const MONGO_URI = process.env.MONGO_URI;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// =======================================
+// CONFIG
+// =======================================
+const MONGODB_URI = process.env.MONGODB_URI;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
-const INDEX_NAME = "ventas";
 
-// Tamaño del batch para procesar ventas
+const INDEX_NAME = "nodegeminis";
+const NAMESPACE = "ventas";
+
 const BATCH_SIZE = 100;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2500;
 
-// ------------------------
-// Conexión a MongoDB
-// ------------------------
+// =======================================
+// MongoDB
+// =======================================
 async function connectMongo() {
   console.log("🔌 Conectando a MongoDB...");
-
-  await mongoose.connect(MONGO_URI, {
-    serverSelectionTimeoutMS: 5000,
-  });
-
+  await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
   console.log("✔ MongoDB conectado");
 }
 
-// ------------------------
-// Modelo MongoDB
-// ------------------------
-const VentasSchema = new mongoose.Schema({}, { strict: false });
-const VentasModel = mongoose.model("ventas", VentasSchema);
+// =======================================
+// Pinecone + Gemini
+// =======================================
+const pinecone = new Pinecone({ apiKey: PINECONE_API_KEY });
+const index = pinecone.index(INDEX_NAME);
 
-// ------------------------
-// Conexión Pinecone + OpenAI
-// ------------------------
-const pinecone = new Pinecone({
-  apiKey: PINECONE_API_KEY,
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const embeddingModel = genAI.getGenerativeModel({
+  model: "text-embedding-004",
 });
 
-const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY,
-});
+// ***************************************
+// Embeddings por lote (MÁS VELOZ)
+// ***************************************
+async function embedBatch(texts) {
+  const concurrency = 20; // cuántas requests paralelas
+  const results = [];
 
-// ------------------------
-// Embeddings helper
-// ------------------------
-async function embedText(text) {
-  const response = await openai.embeddings.create({
-    model: "text-embedding-3-large",
-    input: text,
-  });
+  for (let i = 0; i < texts.length; i += concurrency) {
+    const slice = texts.slice(i, i + concurrency);
 
-  return response.data[0].embedding;
-}
+    const embeddings = await Promise.all(
+      slice.map(async (txt) => {
+        const r = await embeddingModel.embedContent(txt);
+        return r.embedding.values;
+      })
+    );
 
-// ------------------------
-// Procesar ventas y subirlas a Pinecone
-// ------------------------
-async function run() {
-  await connectMongo();
-
-  const index = pinecone.index(INDEX_NAME);
-
-  console.log("📦 Obteniendo ventas desde Mongo...");
-
-  const totalCount = await VentasModel.countDocuments();
-  console.log(`📄 Total de documentos: ${totalCount}`);
-
-  const cursor = VentasModel.find().lean().cursor();
-
-  let batchDocs = [];
-  let processed = 0;
-  let batchNumber = 1;
-
-  for await (const sale of cursor) {
-    batchDocs.push(sale);
-
-    if (batchDocs.length >= BATCH_SIZE) {
-      await processBatch(batchDocs, index, batchNumber, processed);
-      processed += batchDocs.length;
-      batchDocs = [];
-      batchNumber++;
-    }
+    results.push(...embeddings);
   }
 
-  if (batchDocs.length > 0) {
-    await processBatch(batchDocs, index, batchNumber, processed);
-  }
-
-  console.log("🎉 Sincronización completa");
-  process.exit(0);
+  return results;
+}
+// Delay
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ------------------------
-// Procesar batch individual
-// ------------------------
-async function processBatch(batchDocs, index, batchNumber, processed) {
-  console.log(`🚀 Procesando batch ${batchNumber} (${processed} procesados)`);
+// =======================================
+// Procesar un batch
+// =======================================
+async function processBatch(batchDocs, batchNumber, processed) {
+  console.log(`\n🚀 Batch ${batchNumber} | Procesados hasta ahora: ${processed}`);
 
+  // ------------------------------------
+  // Preparar textos
+  // ------------------------------------
   const texts = batchDocs.map((sale) => {
-    return `${sale.Cliente} compró ${sale.Cantidad} unidades de ${sale.NombreArticulo} (artículo ${sale.Articulo}) el ${sale.Fecha}`;
+    const fechaISO = sale.Fecha
+      ? new Date(sale.Fecha).toISOString().split("T")[0]
+      : "Fecha no disponible";
+
+    const nombre = sale.Nombre || "Nombre no disponible";
+    const cuit = sale.CUIT || "CUIT no disponible";
+    const cantidad = sale.Cantidad ?? "Cantidad no disponible";
+    const articulo = sale.Articulo || "Artículo no disponible";
+    const nombreArticulo = sale.NombreArticulo || "Nombre Artículo no disponible";
+    const total = sale.Total ?? "Total no disponible";
+
+    return `${nombre} (CUIT ${cuit}) compró ${cantidad} unidades del artículo ${articulo} - ${nombreArticulo} el ${fechaISO}. Total: ${total}`;
   });
 
-  const embeddingResponse = await openai.embeddings.create({
-    model: "text-embedding-3-large",
-    input: texts,
-  });
+  // ------------------------------------
+  // Embeddings por lote
+  // ------------------------------------
+  const embeddings = await embedBatch(texts);
 
-  const embeddings = embeddingResponse.data.map((e) => e.embedding);
+  // ------------------------------------
+  // Preparar records
+  // ------------------------------------
+  const records = batchDocs.map((sale, i) => {
+    const fechaISO = sale.Fecha
+      ? new Date(sale.Fecha).toISOString().split("T")[0]
+      : null;
 
-  const salesBatch = batchDocs.map((sale, index) => {
-    const id = `${sale.CUIT}-${sale.Articulo}-${sale.Fecha}`;
+    // ID ÚNICO REAL → evita duplicados siempre
+    const id = sale._id.toString();
 
-    // 📌 METADATA ESTRUCTURADA (clave para responder correctamente)
-    const structuredMetadata = {
+    const structuredData = {
       idVenta: id,
-      year: new Date(sale.Fecha).getFullYear(),
-      fecha: sale.Fecha,
-      comprobante: sale.Comprobante ?? "",
-      cliente: sale.Cliente ?? "",
-      nombreCliente: sale.Nombre ?? "",
-      cuit: sale.CUIT ?? "",
-      codigoArticulo: sale.Articulo ?? "",
-      nombreArticulo: sale.NombreArticulo ?? "",
-      descripcion: sale["Desc.Adicional"] ?? "",
-      cantidad: Number(sale.Cantidad) || 0,
-      precioUnitario: Number(sale["P. Unit."]) || 0,
-      subtotal:
-        (Number(sale.Cantidad) || 0) * (Number(sale["P. Unit."]) || 0),
+      fecha: fechaISO,
+      year: sale.Fecha ? new Date(sale.Fecha).getFullYear() : null,
+      cliente: sale.Cliente,
+      nombreCliente: sale.Nombre,
+      cuit: sale.CUIT,
+      articulo: sale.Articulo,
+      nombreArticulo: sale.NombreArticulo,
+      descripcionAdicional: sale.Desc_Adicional,
+      cantidad: sale.Cantidad,
+      precioUnitario: sale.P_Unit,
+      total: sale.Total,
+      localidad: sale.Localidad,
+      provincia: sale["Nombre Provincia"],
     };
 
     return {
       id,
-      values: embeddings[index],
+      values: embeddings[i],
       metadata: {
-        text: texts[index],
-        structured: structuredMetadata,
+        text: texts[i],
+        structured: JSON.stringify(structuredData),
       },
     };
   });
 
-  // Subir batch al índice
-  await index.upsert(salesBatch);
+  // ------------------------------------
+  // Enviar a Pinecone
+  // ------------------------------------
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`📤 Subiendo batch ${batchNumber} (intento ${attempt})...`);
 
-  console.log(`📤 Batch ${batchNumber} subido correctamente`);
+     await index.upsert(
+  records.map((r) => ({
+    id: r.id,
+    values: r.values,
+    metadata: r.metadata,
+  })),
+  { namespace: NAMESPACE }
+);
+
+      console.log(`✅ Batch ${batchNumber} subido correctamente`);
+      return;
+    } catch (err) {
+      console.warn(`⚠ Error batch ${batchNumber} (intento ${attempt}):`, err.message);
+
+      if (attempt === MAX_RETRIES) {
+        console.error(`❌ Falló batch ${batchNumber} después de ${MAX_RETRIES} intentos`);
+      } else {
+        console.log(`⏳ Reintentando en ${RETRY_DELAY_MS}ms...`);
+        await delay(RETRY_DELAY_MS);
+      }
+    }
+  }
 }
 
-// ------------------------
-// Iniciar script
-// ------------------------
-run().catch((err) => {
-  console.error("❌ Error en la sincronización:", err);
+// =======================================
+// MAIN
+// =======================================
+async function run() {
+  await connectMongo();
+
+  const total = await Sale.countDocuments();
+  console.log(`📄 Total de ventas encontradas: ${total}`);
+
+  const cursor = Sale.find().lean().cursor();
+  let batch = [];
+  let processed = 0;
+  let batchNumber = 1;
+
+  for await (const sale of cursor) {
+    batch.push(sale);
+
+    if (batch.length >= BATCH_SIZE) {
+      await processBatch(batch, batchNumber, processed);
+      processed += batch.length;
+      batch = [];
+      batchNumber++;
+    }
+  }
+
+  // Último batch incompleto
+  if (batch.length > 0) {
+    await processBatch(batch, batchNumber, processed);
+  }
+
+  console.log("\n🎉 Sincronización completa con Pinecone");
+  process.exit(0);
+}
+
+// =======================================
+run().catch(err => {
+  console.error("❌ Error general:", err);
   process.exit(1);
 });

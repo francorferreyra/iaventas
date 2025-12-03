@@ -3,71 +3,42 @@ import mongoose from "mongoose";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-//
-// ==============================
-//  MODELO MONGO (sin overwrite)
-// ==============================
-//
-const Ventas =
-  mongoose.models.Sale ||
-  mongoose.model("Sale", new mongoose.Schema({}, { strict: false }), "sales");
+const Ventas = mongoose.model(
+  "Sale",
+  new mongoose.Schema({}, { strict: false }),
+  "sales" // COLECCIÓN REAL
+);
 
-//
-// ==============================
-//  INIT GEMINI
-// ==============================
-//
+// ------------------------
+// INIT GEMINI
+// ------------------------
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const llm = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-const embedModel = genAI.getGenerativeModel({
-  model: "text-embedding-004"
-});
+const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
-//
-// ==============================
-//  INIT PINECONE
-// ==============================
-//
-const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY
-});
+// ------------------------
+// INIT PINECONE
+// ------------------------
+const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+const index = pinecone.index(process.env.PINECONE_INDEX).namespace("__default__");
 
-const index = pinecone
-  .index(process.env.PINECONE_INDEX)
-  .namespace("__default__");
-
-//
-// ==============================
-//  DETECTOR DE CONSULTA NUMÉRICA
-// ==============================
-//
+// ------------------------
+// DETECTOR de tipo de consulta
+// ------------------------
 function shouldUseMongo(question) {
   const keywords = [
-    "más vendido",
-    "mas vendido",
-    "top",
-    "ranking",
-    "total",
-    "suma",
-    "cantidad",
-    "promedio",
-    "ventas del",
-    "ventas en",
-    "periodo",
-    "año",
-    "mes",
-    "desde",
-    "hasta"
+    "más vendido", "mas vendido", "top", "ranking",
+    "total", "suma", "cantidad", "promedio",
+    "ventas del", "ventas en", "periodo",
+    "año", "mes", "desde", "hasta"
   ];
 
-  return keywords.some((k) => question.toLowerCase().includes(k));
+  return keywords.some(k => question.toLowerCase().includes(k));
 }
 
-//
-// ==============================
-//  EXTRAER RANGO DE FECHAS
-// ==============================
-//
+// ------------------------
+// EXTRACCIÓN de fechas si existen
+// ------------------------
 function extractDateRange(text) {
   const years = text.match(/20\d{2}/g);
 
@@ -89,11 +60,9 @@ function extractDateRange(text) {
   return null;
 }
 
-//
-// ==============================
-//  CONSULTA INTELIGENTE A MONGO
-// ==============================
-//
+// ------------------------
+// CONSULTA MONGO INTELIGENTE
+// ------------------------
 async function mongoQuery(question) {
   const range = extractDateRange(question);
   const match = {};
@@ -104,14 +73,12 @@ async function mongoQuery(question) {
 
   const result = await Ventas.aggregate([
     { $match: match },
-    {
-      $group: {
+    { $group: {
         _id: "$Articulo",
         nombreArticulo: { $first: "$NombreArticulo" },
         cantidadTotal: { $sum: "$Cantidad" },
         totalVendido: { $sum: "$Total" }
-      }
-    },
+    }},
     { $sort: { cantidadTotal: -1 } },
     { $limit: 10 }
   ]);
@@ -122,18 +89,16 @@ El usuario preguntó: "${question}"
 Resultados obtenidos desde MongoDB:
 ${JSON.stringify(result, null, 2)}
 
-Genera una respuesta clara, detallada y basada en datos.
+Genera una respuesta clara, explicativa y basada en datos exactos.
   `;
 
   const response = await llm.generateContent(prompt);
   return response.response.text();
 }
 
-//
-// ==============================
-//  CONSULTA RAG (PINECONE)
-// ==============================
-//
+// ------------------------
+// CONSULTA RAG SEMÁNTICA
+// ------------------------
 async function ragQuery(question) {
   const embedding = await embedModel.embedContent(question);
   const vector = embedding.embedding.values;
@@ -145,28 +110,26 @@ async function ragQuery(question) {
   });
 
   const context = results.matches
-    .map((m) => m.metadata?.text || "")
+    .map(m => m.metadata?.text || "")
     .join("\n");
 
   const prompt = `
-Pregunta:
+Pregunta del usuario:
 "${question}"
 
-Contexto recuperado desde Pinecone:
+Contexto obtenido desde Pinecone:
 ${context}
 
-Genera insights, análisis, contexto semántico o relaciones no numéricas.
+Analiza patrones, comportamientos, insights y relaciones no numéricas.
   `;
 
   const response = await llm.generateContent(prompt);
   return response.response.text();
 }
 
-//
-// ==============================
-//  FUNCIÓN PRINCIPAL
-// ==============================
-//
+// ------------------------
+// FUNCIÓN PRINCIPAL
+// ------------------------
 export async function askAI(question) {
   if (shouldUseMongo(question)) {
     return mongoQuery(question);

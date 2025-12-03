@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { askSalesRAG } from "../services/ragService.js";
+import { askAI } from "../services/askAI.js";
 
 const router = Router();
 
@@ -8,15 +8,16 @@ router.post("/ask", async (req, res) => {
     const { question } = req.body;
 
     if (!question) {
-      return res.status(400).json({ error: "La pregunta es requerida" });
+      return res.status(400).json({ error: "Falta el campo 'question'" });
     }
 
-    const answer = await askSalesRAG(question);
+    const result = await askAI(question);
 
-    res.json({ answer });
+    res.json({ answer: result });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error procesando la consulta" });
+    console.error("❌ Error en /api/rag/ask:", err);
+    res.status(500).json({ error: "Error procesando la pregunta" });
   }
 });
 

@@ -1,29 +1,29 @@
 import mongoose from "mongoose";
 
 const SaleSchema = new mongoose.Schema({
-  fecha: { type: Date, required: true },
+  Fecha: { type: Date, required: true },   // <-- viene con F mayúscula
 
   // Datos del cliente
-  cliente: String,
-  nombre: String,
-  cuit: String,
+  Cliente: String,
+  Nombre: String,
+  CUIT: String,
 
   // Datos del artículo
-  articulo: String,
-  nombreArticulo: String,
-  descripcionAdicional: String, // “Desc_Adicional”
-  codigoAlternativo1: String,
-  codigoAlternativo2: String,
+  Articulo: String,
+  NombreArticulo: String,
+  Desc_Adicional: String,
+  CodigoAlternativo1: String,
+  CodigoAlternativo2: String,
 
   // Cantidades y valores
-  cantidad: Number,
-  precioUnitario: Number, // “P_Unit”
-  total: Number,
-  totalIva: Number, // “Total+Iva”
+  Cantidad: Number,
+  P_Unit: Number,
+  Total: Number,
+  "Total+Iva": Number,  // <-- campo con símbolo + (Mongoose lo permite)
 
   // Ubicación
-  localidad: String,
-  nombreProvincia: String
+  Localidad: String,
+  "Nombre Provincia": String
 });
 
 export default mongoose.model("Sale", SaleSchema);
