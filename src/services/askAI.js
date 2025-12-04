@@ -1,139 +1,78 @@
 import "dotenv/config";
-import mongoose from "mongoose";
-import { Pinecone } from "@pinecone-database/pinecone";
+
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Pinecone } from "@pinecone-database/pinecone";
 
-const Ventas = mongoose.model(
-  "Sale",
-  new mongoose.Schema({}, { strict: false }),
-  "sales" // COLECCIÓN REAL
-);
-
-// ------------------------
-// INIT GEMINI
-// ------------------------
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const llm = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+// Modelos
 const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
+const chatModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-// ------------------------
-// INIT PINECONE
-// ------------------------
-const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
-const index = pinecone.index(process.env.PINECONE_INDEX).namespace("__default__");
+// Pinecone
+const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+const index = pc.index(process.env.PINECONE_INDEX);
 
-// ------------------------
-// DETECTOR de tipo de consulta
-// ------------------------
-function shouldUseMongo(question) {
+const needsRag = (query) => {
   const keywords = [
-    "más vendido", "mas vendido", "top", "ranking",
-    "total", "suma", "cantidad", "promedio",
-    "ventas del", "ventas en", "periodo",
-    "año", "mes", "desde", "hasta"
+    "ventas", "vendido", "artículo", "producto",
+    "Facturación", "top", "cuál fue", "más vendido",
+    "2023", "2024", "2025"
   ];
+  return keywords.some((k) => query.toLowerCase().includes(k));
+};
 
-  return keywords.some(k => question.toLowerCase().includes(k));
-}
+export async function askAI(query) {
+  console.log("🧠 Pregunta:", query);
 
-// ------------------------
-// EXTRACCIÓN de fechas si existen
-// ------------------------
-function extractDateRange(text) {
-  const years = text.match(/20\d{2}/g);
+  try {
+    let context = "";
 
-  if (years && years.length === 1) {
-    const year = parseInt(years[0]);
-    return {
-      start: new Date(`${year}-01-01`),
-      end: new Date(`${year}-12-31`)
-    };
-  }
+    if (needsRag(query)) {
+      console.log("📌 Se requiere RAG → Buscando en Pinecone…");
 
-  if (years && years.length === 2) {
-    return {
-      start: new Date(`${years[0]}-01-01`),
-      end: new Date(`${years[1]}-12-31`)
-    };
-  }
+      // 🔹 Embedding CORRECTO
+      const embedResponse = await embedModel.embedContent({
+        content: {
+          parts: [{ text: query }]
+        }
+      });
 
-  return null;
-}
+      const queryEmbedding = embedResponse.embedding?.values;
+      if (!queryEmbedding) {
+        throw new Error("No se pudo obtener el embedding");
+      }
 
-// ------------------------
-// CONSULTA MONGO INTELIGENTE
-// ------------------------
-async function mongoQuery(question) {
-  const range = extractDateRange(question);
-  const match = {};
+      const pineconeResult = await index.query({
+        topK: 5,
+        vector: queryEmbedding,
+        includeMetadata: true
+      });
 
-  if (range) {
-    match.Fecha = { $gte: range.start, $lte: range.end };
-  }
+      if (pineconeResult.matches.length > 0) {
+        context = pineconeResult.matches
+          .map(m => m.metadata?.text || "")
+          .join("\n");
+      }
 
-  const result = await Ventas.aggregate([
-    { $match: match },
-    { $group: {
-        _id: "$Articulo",
-        nombreArticulo: { $first: "$NombreArticulo" },
-        cantidadTotal: { $sum: "$Cantidad" },
-        totalVendido: { $sum: "$Total" }
-    }},
-    { $sort: { cantidadTotal: -1 } },
-    { $limit: 10 }
-  ]);
+      console.log("📄 Contexto recuperado:", context.length > 0);
+    }
 
-  const prompt = `
-El usuario preguntó: "${question}"
+    const prompt = context
+      ? `Aquí tienes datos históricos de ventas:\n${context}\n\nCon esto, responde: ${query}`
+      : query;
 
-Resultados obtenidos desde MongoDB:
-${JSON.stringify(result, null, 2)}
+    const completion = await chatModel.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }]
+    });
 
-Genera una respuesta clara, explicativa y basada en datos exactos.
-  `;
+    const responseText = completion.response.text() || "No encontré respuesta.";
 
-  const response = await llm.generateContent(prompt);
-  return response.response.text();
-}
+    console.log("🤖 Respuesta generada OK");
+    return responseText;
 
-// ------------------------
-// CONSULTA RAG SEMÁNTICA
-// ------------------------
-async function ragQuery(question) {
-  const embedding = await embedModel.embedContent(question);
-  const vector = embedding.embedding.values;
-
-  const results = await index.query({
-    vector,
-    topK: 15,
-    includeMetadata: true
-  });
-
-  const context = results.matches
-    .map(m => m.metadata?.text || "")
-    .join("\n");
-
-  const prompt = `
-Pregunta del usuario:
-"${question}"
-
-Contexto obtenido desde Pinecone:
-${context}
-
-Analiza patrones, comportamientos, insights y relaciones no numéricas.
-  `;
-
-  const response = await llm.generateContent(prompt);
-  return response.response.text();
-}
-
-// ------------------------
-// FUNCIÓN PRINCIPAL
-// ------------------------
-export async function askAI(question) {
-  if (shouldUseMongo(question)) {
-    return mongoQuery(question);
-  } else {
-    return ragQuery(question);
+  } catch (error) {
+    console.error("❌ Error en askAI:", error);
+    return "Ocurrió un error procesando la consulta.";
   }
 }
