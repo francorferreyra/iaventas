@@ -8,7 +8,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Modelos CORRECTOS con tu SDK actual
 const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
-const chatModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const chatModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // Pinecone
 const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
