@@ -1,28 +1,42 @@
 import mongoose from "mongoose";
 
-// Conexión a marketingIA
-export const marketingConnection = mongoose.createConnection(
-  process.env.MONGODB_URI
-);
+let marketingConnection = null;
+let hertracConnection = null;
 
-// Conexión a hertrac
-export const hertracConnection = mongoose.createConnection(
-  process.env.MONGODB_URI_HT
-);
+export async function connectMongo() {
+  if (!marketingConnection) {
+    marketingConnection = await mongoose.createConnection(
+      process.env.MONGODB_URI,
+      {
+        dbName: "marketingia"
+      }
+    );
 
-// Logs
-marketingConnection.on("connected", () => {
-  console.log("✅ Conectado a MongoDB → marketingIA");
-});
+    console.log("✅ Conectado a MongoDB → marketingIA");
+  }
 
-marketingConnection.on("error", (err) => {
-  console.error("❌ Error Mongo marketingIA:", err);
-});
+  if (!hertracConnection) {
+    hertracConnection = await mongoose.createConnection(
+      process.env.MONGODB_URI_HT,
+      {
+        dbName: "hertrac"
+      }
+    );
 
-hertracConnection.on("connected", () => {
-  console.log("✅ Conectado a MongoDB → hertrac");
-});
+    console.log("✅ Conectado a MongoDB → hertrac");
+  }
+}
 
-hertracConnection.on("error", (err) => {
-  console.error("❌ Error Mongo hertrac:", err);
-});
+export function getMarketingConnection() {
+  if (!marketingConnection) {
+    throw new Error("❌ marketingIA no está conectado");
+  }
+  return marketingConnection;
+}
+
+export function getHertracDb() {
+  if (!hertracConnection) {
+    throw new Error("❌ hertrac no está conectado");
+  }
+  return hertracConnection;
+}

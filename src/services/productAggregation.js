@@ -1,7 +1,9 @@
-import { hertracConnection } from "../db/mongo.connections.js";
+import { getHertracDb } from "../db/mongo.native.js";
 
 export async function getProductsForIndexing() {
-  return hertracConnection
+  const db = getHertracDb();
+
+  const products = await db
     .collection("products")
     .aggregate([
       { $match: { status: true } },
@@ -14,6 +16,8 @@ export async function getProductsForIndexing() {
           as: "heading"
         }
       },
+      { $unwind: "$heading" },
+
       {
         $lookup: {
           from: "subheadings",
@@ -22,8 +26,6 @@ export async function getProductsForIndexing() {
           as: "subheading"
         }
       },
-
-      { $unwind: "$heading" },
       { $unwind: "$subheading" },
 
       {
@@ -31,8 +33,6 @@ export async function getProductsForIndexing() {
           cod: 1,
           name: 1,
           description: 1,
-          alternative_code_1: 1,
-          alternative_code_2: 1,
           brand: 1,
           class: 1,
           salient: 1,
@@ -42,4 +42,6 @@ export async function getProductsForIndexing() {
       }
     ])
     .toArray();
+
+  return products;
 }

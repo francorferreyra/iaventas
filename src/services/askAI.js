@@ -2,7 +2,7 @@ import "dotenv/config";
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Pinecone } from "@pinecone-database/pinecone";
-import SalesModel from "../models/SaleModel.js";
+import { getSaleModel } from "../models/index.js";
 
 // ==========================
 // 🔐 Inicialización IA
@@ -14,7 +14,7 @@ const embedModel = genAI.getGenerativeModel({
   model: "text-embedding-004"
 });
 
-// Chat (usá un modelo estable si podés)
+// Chat
 const chatModel = genAI.getGenerativeModel({
   model: "gemini-3-flash-preview"
 });
@@ -22,7 +22,10 @@ const chatModel = genAI.getGenerativeModel({
 // ==========================
 // 📦 Pinecone
 // ==========================
-const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+const pc = new Pinecone({
+  apiKey: process.env.PINECONE_API_KEY
+});
+
 const index = pc.index(process.env.PINECONE_INDEX);
 
 // ==========================
@@ -30,51 +33,73 @@ const index = pc.index(process.env.PINECONE_INDEX);
 // ==========================
 async function classifyIntent(query) {
   const result = await chatModel.generateContent({
-    contents: [{
-      role: "user",
-      parts: [{
-        text: `
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: `
 Clasificá la intención de la pregunta en UNA sola palabra:
 
-- rag → búsqueda semántica de productos o información
+- rag → búsqueda semántica de productos o similitudes
 - mongo → métricas, ventas, rankings, facturación
-- general → charla o conocimiento general
+- general → conocimiento general
 
 Pregunta:
 "${query}"
 
 Respondé SOLO con: rag | mongo | general
 `
-      }]
-    }]
+          }
+        ]
+      }
+    ]
   });
 
   return result.response.text().trim().toLowerCase();
 }
 
 // ==========================
-// 📊 MongoDB – Top productos
+// 📊 MongoDB – Ranking de ventas
 // ==========================
-async function getMongoContext() {
-  const results = await SalesModel.aggregate([
+export async function getMongoContext() {
+  const Sale = getSaleModel();
+console.log("📦 Total ventas:", await Sale.countDocuments());
+  const results = await Sale.aggregate([
+    {
+      $match: {
+        NombreArticulo: { $exists: true, $ne: "" }
+      }
+    },
+    {
+      $addFields: {
+        CantidadNum: { $toDouble: "$Cantidad" }
+      }
+    },
     {
       $group: {
         _id: "$NombreArticulo",
-        totalVendidas: { $sum: "$Cantidad" }
+        totalVendidas: { $sum: "$CantidadNum" }
       }
     },
     { $sort: { totalVendidas: -1 } },
     { $limit: 5 }
   ]);
 
+  console.log("📊 Resultados Mongo:", results);
+
   if (!results.length) return null;
 
-  return results.map((r, i) => `
-[Ranking ${i + 1}]
+  return results
+    .map(
+      (r, i) =>
+        `[Ranking ${i + 1}]
 Producto: ${r._id}
-Unidades vendidas: ${r.totalVendidas}
-`).join("\n");
+Unidades vendidas: ${r.totalVendidas}`
+    )
+    .join("\n");
 }
+
 
 // ==========================
 // 🔍 Pinecone – RAG semántico
@@ -91,18 +116,23 @@ async function getRagContext(query) {
     vector: queryEmbedding,
     includeMetadata: true,
     filter: {
-      type: "producto" // 🔥 MUY importante
+      type: "producto"
     }
   });
 
   if (!pineconeResult.matches?.length) return null;
 
-  return pineconeResult.matches.map((m, i) => `
-[Documento ${i + 1}]
-Producto: ${m.metadata?.name || "N/A"}
-Marca: ${m.metadata?.brand || "N/A"}
+  return pineconeResult.matches
+    .map(
+      (m, i) => `
+[Producto ${i + 1}]
+Nombre: ${m.metadata?.name || "N/A"}
+Categoría: ${m.metadata?.categoria || "N/A"}
+Subcategoría: ${m.metadata?.subcategoria || "N/A"}
 Descripción: ${m.metadata?.text || ""}
-`).join("\n");
+`
+    )
+    .join("\n");
 }
 
 // ==========================
@@ -118,15 +148,15 @@ export async function askAI(query) {
 
     let context = null;
 
-    // 2️⃣ Obtener contexto según intención
-    if (intent === "rag") {
-      console.log("📦 Usando Pinecone (RAG)");
-      context = await getRagContext(query);
+    // 2️⃣ Obtener contexto
+    if (intent === "mongo") {
+      console.log("📊 Usando MongoDB (ventas)");
+      context = await getMongoContext();
     }
 
-    if (intent === "mongo") {
-      console.log("📊 Usando MongoDB");
-      context = await getMongoContext();
+    if (intent === "rag") {
+      console.log("📦 Usando Pinecone (productos)");
+      context = await getRagContext(query);
     }
 
     // 3️⃣ Fallback seguro
@@ -134,35 +164,33 @@ export async function askAI(query) {
       return "No tengo datos suficientes para responder con precisión.";
     }
 
-    // 4️⃣ Prompt RAG profesional
+    // 4️⃣ Prompt final
     const prompt = `
-Sos un asistente del sistema interno de ventas.
+Sos un analista comercial especializado en marketing y ventas.
 
-REGLAS IMPORTANTES:
-- Respondé SOLO con la información del contexto
-- No inventes productos, cifras ni conclusiones
-- No realices cálculos adicionales
-- Si la información no alcanza, decilo claramente
+Usá EXCLUSIVAMENTE la información provista para responder.
+No inventes datos.
 
-CONTEXTO:
+Contexto:
 ${context}
 
-PREGUNTA:
+Pregunta:
 ${query}
 
-RESPUESTA CLARA Y DIRECTA:
+Respondé de forma clara, concreta y con justificación comercial.
 `;
 
     // 5️⃣ Generar respuesta
     const completion = await chatModel.generateContent({
-      contents: [{
-        role: "user",
-        parts: [{ text: prompt }]
-      }]
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }]
+        }
+      ]
     });
 
     return completion.response.text() || "No encontré una respuesta clara.";
-
   } catch (err) {
     console.error("❌ Error en askAI:", err);
     return "Error procesando tu consulta.";
