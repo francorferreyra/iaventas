@@ -1,3 +1,4 @@
+import "dotenv/config";
 import mongoose from "mongoose";
 
 let marketingConnection = null;
@@ -5,24 +6,22 @@ let hertracConnection = null;
 
 export async function connectMongo() {
   if (!marketingConnection) {
-    marketingConnection = await mongoose.createConnection(
+    marketingConnection = mongoose.createConnection(
       process.env.MONGODB_URI,
-      {
-        dbName: "marketingia"
-      }
+      { dbName: "marketingia" }
     );
 
+    await marketingConnection.asPromise(); // 🔥 CLAVE
     console.log("✅ Conectado a MongoDB → marketingIA");
   }
 
   if (!hertracConnection) {
-    hertracConnection = await mongoose.createConnection(
+    hertracConnection = mongoose.createConnection(
       process.env.MONGODB_URI_HT,
-      {
-        dbName: "hertrac"
-      }
+      { dbName: "hertrac" }
     );
 
+    await hertracConnection.asPromise(); // 🔥 CLAVE
     console.log("✅ Conectado a MongoDB → hertrac");
   }
 }

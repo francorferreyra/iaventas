@@ -1,86 +1,137 @@
+import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import csv from "csv-parser";
-import mongoose from "mongoose";
 
-// 📌 Conexión a MongoDB Atlas
-mongoose
-  .connect("mongodb+srv://zuka-company:jw7v466zHbaeSBxD@cluster0.bbmpq.mongodb.net/marketingia?retryWrites=true&w=majority")
-  .then(() => console.log("Conectado a MongoDB Atlas"))
-  .catch((err) => console.error("Error al conectar MongoDB Atlas:", err));
+import { connectMongo, getMarketingConnection } from "../db/mongo.connections.js";
+import { getSaleModel } from "../models/index.js";
 
-// 📌 Modelo simple para guardar las ventas
-const saleSchema = new mongoose.Schema({}, { strict: false });
-const Sale = mongoose.model("Sale", saleSchema);
-
-// 📌 Función para normalizar fechas
+// ==========================
+// Utils
+// ==========================
 function parseDate(value) {
   if (!value) return null;
 
-  const regexDMY = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-  if (regexDMY.test(value)) {
-    const [, dd, mm, yyyy] = value.match(regexDMY);
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (match) {
+    const [, dd, mm, yyyy] = match;
     return new Date(`${yyyy}-${mm}-${dd}`);
   }
 
-  const isoDate = new Date(value);
-  if (!isNaN(isoDate.getTime())) return isoDate;
-
-  return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
 }
 
-// 📌 Procesar un archivo CSV individual
-async function processCSV(filePath) {
-  return new Promise((resolve) => {
-    const results = [];
+function toNumber(value) {
+  if (!value) return 0;
+  return Number(
+    String(value).replace(/\./g, "").replace(",", ".")
+  ) || 0;
+}
 
-    fs.createReadStream(filePath)
-      .pipe(csv({ separator: ";" }))  // 👈 CORREGIDO
-      .on("data", (row) => {
-        if (row.Fecha) {
-          const parsed = parseDate(row.Fecha);
+// ==========================
+// Procesar CSV individual
+// ==========================
+async function processCSV(filePath, Sale) {
+  return new Promise((resolve, reject) => {
+    const batch = [];
+    const BATCH_SIZE = 500;
+    let processing = false;
 
-          if (!parsed) {
-            console.warn("⚠ Fecha inválida, fila saltada.", row);
-            return;
-          }
+    const stream = fs.createReadStream(filePath)
+      .pipe(csv({ separator: ";" }));
 
-          row.Fecha = parsed;
+    stream.on("data", async (row) => {
+      stream.pause();
+
+      try {
+        const sale = {
+          Fecha: parseDate(row.Fecha),
+
+          Comprobante: row.Comprobante,
+          Cliente: row.Cliente,
+          NombreCliente: row.NombreCliente,
+          CUIT: row.CUIT,
+
+          Articulo: row.Artículo,
+          NombreArticulo: row.NombreArticulo,
+          Desc_Adicional: row["Desc.Adicional"],
+
+          Cantidad: toNumber(row.Cantidad),
+          P_Unit: toNumber(row["P. Unit."]),
+          Total: toNumber(row.Total),
+
+          NombreVendedor: row.NombreVendedor,
+          NombreZona: row.NombreZona,
+
+          NombreRubro: row.NombreRubro,
+          NombreSubrubro: row.NombreSubrubro,
+          NombreMarca: row.NombreMarca,
+          NombreClase: row.NombreClase,
+
+          CodigoAlternativo1: row["Código Alternativo 1"],
+          CodigoAlternativo2: row["Código Alternativo 2"],
+
+          Localidad: row.Localidad,
+          NombreProvincia: row.NombreProvincia
+        };
+
+        batch.push(sale);
+
+        if (batch.length >= BATCH_SIZE) {
+          await Sale.insertMany(batch, { ordered: false });
+          console.log(`📦 Insertados ${batch.length}`);
+          batch.length = 0;
         }
+      } catch (err) {
+        console.error("❌ Error en fila:", err);
+      } finally {
+        stream.resume();
+      }
+    });
 
-        results.push(row);
-      })
-      .on("end", async () => {
-        if (results.length > 0) {
-          await Sale.insertMany(results);
-          console.log(`✔ Importado: ${filePath} (${results.length} filas)`);
-        } else {
-          console.log(`⚠ No se importaron filas desde: ${filePath}`);
-        }
-        resolve();
-      });
+    stream.on("end", async () => {
+      if (batch.length) {
+        await Sale.insertMany(batch, { ordered: false });
+        console.log(`📦 Insertados ${batch.length} (final)`);
+      }
+
+      console.log(`✔ Importado: ${path.basename(filePath)}`);
+      resolve();
+    });
+
+    stream.on("error", reject);
   });
 }
 
-// 📌 Procesar todos los CSV dentro de /data
+
+// ==========================
+// Importar todos los CSV
+// ==========================
 async function importAllCSVs() {
-  const folder = path.join(process.cwd(), "data"); // 👈 CORREGIDO
+  await connectMongo();
 
-  const files = fs.readdirSync(folder).filter((f) => f.endsWith(".csv"));
+const conn = getMarketingConnection();
+console.log("🔌 readyState marketingIA:", conn.readyState);
 
-  if (files.length === 0) {
-    console.log("⚠ No hay archivos CSV en la carpeta /data");
+  const Sale = getSaleModel();
+
+  const folder = path.join(process.cwd(), "data");
+  const files = fs.readdirSync(folder).filter(f => f.endsWith(".csv"));
+
+  if (!files.length) {
+    console.log("⚠ No hay CSV en /data");
     return;
   }
 
   console.log(`📂 Archivos detectados: ${files.length}`);
 
   for (const file of files) {
-    await processCSV(path.join(folder, file));
+    await processCSV(path.join(folder, file), Sale);
   }
 
-  console.log("🎉 Importación completa.");
-  mongoose.connection.close();
+  console.log("🎉 Importación completa");
+  process.exit(0);
 }
 
 importAllCSVs();
