@@ -1,13 +1,50 @@
 import { getMarketingConnection } from '../../db/mongo.connections.js'
-import { buildClientsResponse } from './ClientsService.js'
+import { ClientMetricsModel } from '../../models/ClientMetrics.model.js'
+import { ClientAIInsightModel } from '../../models/ClientAIInsight.model.js'
+import { calculateClientSegment } from './ClientsSegments.js'
 
 export const getClients = async (req, res) => {
   try {
     const conn = getMarketingConnection()
 
-    const clients = await buildClientsResponse(conn, 20)
+    const ClientMetrics = ClientMetricsModel(conn)
+    const ClientAIInsight = ClientAIInsightModel(conn)
 
-    res.json(clients)
+    const metrics = await ClientMetrics.find().limit(50)
+
+    const ids = metrics.map(c => c._id)
+
+    const insights = await ClientAIInsight.find({
+      _id: { $in: ids },
+    })
+
+    const mapInsights = Object.fromEntries(
+      insights.map(i => [i._id, i])
+    )
+
+    const today = new Date()
+
+    const result = metrics.map(c => {
+      const diasSinComprar = c.ultimaCompra
+        ? Math.floor(
+            (today - new Date(c.ultimaCompra)) / (1000 * 60 * 60 * 24)
+          )
+        : null
+
+      const scoreRecompra = mapInsights[c._id]?.scoreRecompra ?? 0
+
+      return {
+        ...c.toObject(),
+        diasSinComprar,
+        segmentoEstado: calculateClientSegment({
+          diasSinComprar,
+          scoreRecompra,
+        }),
+        ia: mapInsights[c._id] || null,
+      }
+    })
+
+    res.json(result)
   } catch (err) {
     console.error(err)
     res.status(500).json({ message: 'Error obteniendo clientes' })

@@ -6,21 +6,35 @@ export const getClientsStats = async (req, res) => {
     const conn = getMarketingConnection()
     const ClientMetrics = ClientMetricsModel(conn)
 
-    const today = new Date()
     const limitDate = new Date()
-    limitDate.setDate(today.getDate() - 90)
+    limitDate.setDate(limitDate.getDate() - 90)
 
-    const total = await ClientMetrics.countDocuments()
+    const [result] = await ClientMetrics.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          activos: {
+            $sum: {
+              $cond: [{ $gte: ['$ultimaCompra', limitDate] }, 1, 0],
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          total: 1,
+          activos: 1,
+          inactivos: { $subtract: ['$total', '$activos'] },
+        },
+      },
+    ])
 
-    const activos = await ClientMetrics.countDocuments({
-      ultimaCompra: { $gte: limitDate },
-    })
-
-    const inactivos = total - activos
-
-    res.json({ total, activos, inactivos })
+    res.json(result || { total: 0, activos: 0, inactivos: 0 })
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: 'Error calculando estadísticas' })
   }
 }
+
