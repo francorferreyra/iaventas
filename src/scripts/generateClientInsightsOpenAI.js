@@ -1,106 +1,133 @@
 import "dotenv/config";
+import OpenAI from "openai";
 import { connectMongo, getMarketingConnection } from "../db/mongo.connections.js";
 
-import {
-  generateClientSummary,
-  generateClientAction,
-  generateClientMessage,
-  generateClientScore,
-} from "../services/ai/OpenAIService.js";
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
-/* ==========================
-   Utils
-========================== */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function generateInsights() {
+  try {
+    await connectMongo();
 
-/* ==========================
-   Script
-========================== */
-async function run() {
-  await connectMongo();
-  const db = getMarketingConnection();
-  const collection = db.collection("clients_ai_insights");
+    const db = getMarketingConnection();
 
-  console.log("🚀 Buscando clientes pendientes...");
+    const metricsCollection = db.collection("clients_metrics");
+    const insightsCollection = db.collection("clients_ai_insights");
 
-  const clients = await collection
-    .find({
-      $and: [
-        {
-          $or: [
-            { resumenIA: { $exists: false } },
-            { resumenIA: null },
-            { resumenIA: "" },
-          ],
-        },
-        { procesandoIA: { $ne: true } },
-      ],
-    })
-    .sort({ _id: 1 })
-    .limit(5)
-    .toArray();
+    const totalClients = await metricsCollection.countDocuments();
+    console.log("📊 Clientes en clients_metrics:", totalClients);
 
-  if (!clients.length) {
-    console.log("✅ No hay clientes pendientes");
-    process.exit(0);
-  }
+    console.log("🔍 Buscando clientes sin IA...");
 
-  for (const c of clients) {
-    try {
-      /* 🔒 Bloqueo inmediato */
-      await collection.updateOne(
-        { _id: c._id },
-        { $set: { procesandoIA: true } }
-      );
+    // 🔥 Lookup CORRECTO por _id
+    const clients = await metricsCollection.aggregate([
+      {
+        $lookup: {
+          from: "clients_ai_insights",
+          localField: "_id",
+          foreignField: "_id",
+          as: "ai"
+        }
+      },
+      {
+        $match: { ai: { $size: 0 } }
+      },
+      { $limit: 50 }
+    ]).toArray();
 
-      const payload = {
-        nombre: c.nombre,
-        segmento: c.segmento,
-        totalFacturado: c.totalFacturado,
-        compras: c.compras,
-        diasSinComprar: c.diasSinComprar,
-        rubrosFrecuentes: c.rubrosFrecuentes || [],
-        marcasFrecuentes: c.marcasFrecuentes || [],
-      };
+    console.log("👀 Clientes encontrados sin IA:", clients.length);
 
-      /* 🤖 OpenAI */
-      const resumenIA = await generateClientSummary(payload);
-      const accion = await generateClientAction(payload);
-      const mensaje = await generateClientMessage(payload);
-      const scoreRecompra = await generateClientScore(payload);
-
-      /* 💾 Guardar resultado */
-      await collection.updateOne(
-  { _id: c._id },
-  {
-    $set: {
-      resumenIA,
-      accion,
-      mensaje,
-      scoreRecompra,
-      generadoEl: new Date(),
-    },
-    $unset: { procesandoIA: "" },
-  }
-);
-
-      console.log(`✔ OpenAI insight → ${c.nombre}`);
-
-      await sleep(10_000); // ⬅️ OpenAI permite menos pausa
-    } catch (err) {
-      console.error(`❌ Error con ${c.nombre}:`, err.message);
-
-      await collection.updateOne(
-        { _id: c._id },
-        { $unset: { procesandoIA: "" } }
-      );
-
-      await sleep(20_000);
+    if (!clients.length) {
+      console.log("✅ No hay clientes pendientes");
+      return;
     }
-  }
 
-  console.log("🏁 Corrida finalizada");
-  process.exit(0);
+    for (const client of clients) {
+      try {
+
+        const prompt = `
+Analiza estos datos de cliente y genera insights comerciales.
+
+Responde SOLO JSON válido sin texto extra.
+
+Formato requerido:
+{
+  "risk_level": "LOW | MEDIUM | HIGH",
+  "recommendations": ["string"],
+  "summary": "string"
 }
 
-run();
+Datos cliente:
+${JSON.stringify(client)}
+`;
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-5-mini",
+          messages: [
+            {
+              role: "system",
+              content: "Sos un analista experto en marketing B2B."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ]
+        });
+
+        let content = completion.choices[0].message.content;
+
+        content = content
+          .replace(/```json/g, "")
+          .replace(/```/g, "")
+          .trim();
+
+        let parsed;
+
+        try {
+          parsed = JSON.parse(content);
+        } catch {
+          console.log("⚠️ JSON inválido IA, se omite cliente:", client._id);
+          continue;
+        }
+
+        // 🔥 UPSERT CORRECTO
+        await insightsCollection.updateOne(
+          { _id: client._id },
+          {
+            $set: {
+              resumenIA: parsed.summary,
+
+              accionIA: parsed.recommendations?.join("\n• "),
+
+              mensajeIA: `Hola ${client.nombre || "cliente"}, queremos ayudarte a optimizar tus compras y ofrecerte beneficios personalizados.`,
+
+              accionSugerida: parsed.risk_level,
+
+              scoreRecompra: client.scoreRecompra || 0,
+
+              prioridad: client.prioridad || "Media",
+
+              generadoEl: new Date()
+            }
+          },
+          { upsert: true }
+        );
+
+        console.log("✅ Insight generado →", client._id);
+
+      } catch (error) {
+        console.log("❌ Error cliente:", client._id);
+        console.log(error.message);
+      }
+    }
+
+    console.log("🎯 Proceso finalizado");
+
+  } catch (error) {
+    console.error("❌ Error general:", error);
+  }
+}
+
+generateInsights();

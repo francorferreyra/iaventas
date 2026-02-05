@@ -4,7 +4,7 @@ import { ClientMetricsModel } from '../../models/ClientMetrics.model.js'
 export const getClientsStats = async (req, res) => {
   try {
     const conn = getMarketingConnection()
-    const ClientMetrics = ClientMetricsModel(conn)
+    const ClientMetrics = ClientMetricsModel()
 
     const limitDate = new Date()
     limitDate.setDate(limitDate.getDate() - 90)

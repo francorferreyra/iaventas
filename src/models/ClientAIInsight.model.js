@@ -15,5 +15,12 @@ const ClientAIInsightSchema = new mongoose.Schema(
 )
 
 export function ClientAIInsightModel(conn) {
-  return conn.model('ClientAIInsight', ClientAIInsightSchema)
+
+  const connection = conn || mongoose
+
+  return connection.models.ClientAIInsight ||
+    connection.model(
+      'ClientAIInsight',
+      ClientAIInsightSchema
+    )
 }

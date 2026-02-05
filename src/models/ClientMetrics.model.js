@@ -18,5 +18,9 @@ const ClientMetricsSchema = new mongoose.Schema(
 )
 
 export function ClientMetricsModel(conn) {
-  return conn.model('ClientMetrics', ClientMetricsSchema)
+
+  const connection = conn || mongoose
+
+  return connection.models.ClientMetrics ||
+    connection.model('ClientMetrics', ClientMetricsSchema)
 }

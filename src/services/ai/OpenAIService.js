@@ -1,6 +1,5 @@
 import 'dotenv/config'
 import OpenAI from 'openai'
-import openai from "./openaiClient.js";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -8,90 +7,87 @@ const openai = new OpenAI({
 
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini'
 
+/* ==========================
+   Core
+========================== */
 
-async function runPrompt({ system, user }) {
+export async function askOpenAI({ system, user }) {
   const response = await openai.responses.create({
     model: MODEL,
     input: [
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
+    temperature: 0.4,
+    max_output_tokens: 300,
   })
 
-  return response.output_text
+  return response.output_text?.trim() || ''
 }
 
+/* ==========================
+   Business helpers
+========================== */
+
 export async function generateClientSummary(data) {
-  return runPrompt({
-    system: 'Sos un analista de marketing...',
-    user: `Datos del cliente: ${JSON.stringify(data)}`,
+  return askOpenAI({
+    system: 'Sos un analista senior de marketing y comportamiento de clientes.',
+    user: `
+Generá un resumen claro y breve del cliente.
+Datos:
+${JSON.stringify(data, null, 2)}
+`,
   })
 }
 
 export async function generateClientAction(data) {
-  return runPrompt({
-    system: 'Sos un experto en retención...',
-    user: `Datos del cliente: ${JSON.stringify(data)}`,
+  return askOpenAI({
+    system: 'Sos un experto en retención y activación de clientes.',
+    user: `
+Sugerí UNA acción concreta para este cliente.
+Datos:
+${JSON.stringify(data, null, 2)}
+`,
   })
 }
 
 export async function generateClientMessage(data) {
-  return runPrompt({
-    system: 'Sos especialista en comunicación...',
-    user: `Datos del cliente: ${JSON.stringify(data)}`,
+  return askOpenAI({
+    system: 'Sos especialista en comunicación comercial.',
+    user: `
+Escribí un mensaje corto y listo para enviar al cliente.
+Datos:
+${JSON.stringify(data, null, 2)}
+`,
   })
 }
 
-export async function generateClientScore(client) {
-  const prompt = `
-Devolvé SOLO un número entero entre 0 y 100.
-No agregues texto, símbolos ni explicaciones.
+export async function generateClientScore(data) {
+  const result = await askOpenAI({
+    system:
+      'Sos un analista experto en modelos de recompra y scoring de clientes.',
+    user: `
+Asigná un score de probabilidad de recompra ENTRE 0 y 1.
+Respondé SOLO un número decimal (ej: 0.72).
+Datos del cliente:
+${JSON.stringify(data, null, 2)}
+`,
+  })
 
-Evaluá la probabilidad de recompra del cliente considerando:
-- Total facturado
-- Cantidad de compras
-- Días sin comprar
-- Diversidad de rubros y marcas
+  const parsed = parseFloat(
+    String(result).replace(',', '.')
+  )
 
-Cliente:
-Total facturado: ${client.totalFacturado}
-Compras: ${client.compras}
-Días sin comprar: ${client.diasSinComprar}
-Rubros frecuentes: ${(client.rubrosFrecuentes || []).join(", ")}
-Marcas frecuentes: ${(client.marcasFrecuentes || []).join(", ")}
-`;
+  if (Number.isNaN(parsed)) return 0
 
-  const response = await openai.responses.create({
-    model: "gpt-5-mini",
-    input: prompt,
-  });
-
-  const raw = response.output_text?.trim();
-  const score = Number(raw);
-
-  if (Number.isNaN(score)) return 0;
-
-  return Math.min(100, Math.max(0, score));
+  return Math.max(0, Math.min(1, parsed))
 }
 
-export async function explainClientScore(client, score) {
-  const prompt = `
-Explicá brevemente (máx 2 frases) por qué este cliente tiene un score de recompra de ${score}.
-Usá lenguaje claro y comercial.
-NO repitas el número del score.
+export async function getEmbedding(text) {
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: text,
+  })
 
-Datos del cliente:
-Total facturado: ${client.totalFacturado}
-Compras: ${client.compras}
-Días sin comprar: ${client.diasSinComprar}
-Rubros frecuentes: ${(client.rubrosFrecuentes || []).join(", ")}
-Marcas frecuentes: ${(client.marcasFrecuentes || []).join(", ")}
-`;
-
-  const response = await openai.responses.create({
-    model: "gpt-5-mini",
-    input: prompt,
-  });
-
-  return response.output_text?.trim() || "";
+  return response.data[0].embedding
 }

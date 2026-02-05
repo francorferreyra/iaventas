@@ -1,5 +1,3 @@
-// src/controllers/sales/SalesStats.js
-
 import Sales from "../../models/SaleModel.js";
 
 // -----------------------------------------------------------------------------

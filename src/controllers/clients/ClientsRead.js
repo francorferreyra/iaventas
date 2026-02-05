@@ -1,14 +1,14 @@
 import { getMarketingConnection } from '../../db/mongo.connections.js'
 import { ClientMetricsModel } from '../../models/ClientMetrics.model.js'
 import { ClientAIInsightModel } from '../../models/ClientAIInsight.model.js'
-import { calculateClientSegment } from './ClientsSegments.js'
+import { calculateClientSegment } from '../../utils/clients/ClientsSegments.js'
 
 export const getClients = async (req, res) => {
   try {
     const conn = getMarketingConnection()
 
-    const ClientMetrics = ClientMetricsModel(conn)
-    const ClientAIInsight = ClientAIInsightModel(conn)
+    const ClientMetrics = ClientMetricsModel()
+    const ClientAIInsight = ClientAIInsightModel()
 
     const metrics = await ClientMetrics.find().limit(50)
 

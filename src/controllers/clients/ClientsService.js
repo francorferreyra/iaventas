@@ -1,43 +1,67 @@
-import { ClientMetricsModel } from '../../models/ClientMetrics.model.js'
-import { ClientAIInsightModel } from '../../models/ClientAIInsight.model.js'
-import {
-  calculateClientSegment,
-  isClientActive,
-} from './ClientsSegments.js'
+import { getClientMetricsWithInsights } from './ClientsRepository.js'
+import { enrichClient } from './ClientsEnricher.js'
 
-export async function buildClientsResponse(conn, limit = 20) {
-  const ClientMetrics = ClientMetricsModel(conn)
-  const ClientAIInsight = ClientAIInsightModel(conn)
+const DB_SORT_FIELDS = ['diasSinComprar', 'createdAt', 'nombre']
+const MEMORY_SORT_FIELDS = ['scoreRecompra', 'activo', 'segmentoAuto']
 
-  const metrics = await ClientMetrics.find().limit(limit)
+export async function buildClientsResponse(
+  {
+    limit = 20,
+    skip = 0,
+    filters = {},
+    sortBy = 'createdAt',
+    order = 'desc',
+  } = {}
+) {
+  const sortOrder = order === 'asc' ? 1 : -1
 
-  const ids = metrics.map((c) => c._id)
+  const mongoSort = DB_SORT_FIELDS.includes(sortBy)
+    ? { [sortBy]: sortOrder }
+    : null
 
-  const insights = await ClientAIInsight.find({
-    _id: { $in: ids },
+  // 🔥 SIN conn
+  const rawData = await getClientMetricsWithInsights({
+    limit,
+    skip,
+    filters,
+    sort: mongoSort,
   })
 
-  const mapInsights = Object.fromEntries(
-    insights.map((i) => [i._id, i])
-  )
+  let result = rawData.map(enrichClient)
 
-  return metrics.map((c) => {
-    const ia = mapInsights[c._id] || null
-    const diasSinComprar = c.diasSinComprar ?? null
-    const score = ia ? Math.round(ia.scoreRecompra * 100) : 0
+  // filtros post-cálculo
+  if (filters.activo != null) {
+    result = result.filter(
+      c => c.computed.activo === filters.activo
+    )
+  }
 
-    return {
-      ...c.toObject(),
+  if (filters.segmento) {
+    result = result.filter(
+      c => c.computed.segmentoAuto === filters.segmento
+    )
+  }
 
-      ia,
+  if (filters.scoreMin != null) {
+    result = result.filter(
+      c => c.computed.scoreRecompra >= filters.scoreMin
+    )
+  }
 
-      // 🔥 calculados en backend
-      scoreRecompra: score,
-      activo: isClientActive(diasSinComprar),
-      segmentoAuto: calculateClientSegment({
-        diasSinComprar,
-        scoreRecompra: score,
-      }),
-    }
-  })
+  if (filters.scoreMax != null) {
+    result = result.filter(
+      c => c.computed.scoreRecompra <= filters.scoreMax
+    )
+  }
+
+  // orden en memoria
+  if (MEMORY_SORT_FIELDS.includes(sortBy)) {
+    result.sort((a, b) => {
+      const A = a.computed[sortBy]
+      const B = b.computed[sortBy]
+      return order === 'asc' ? A - B : B - A
+    })
+  }
+
+  return result
 }

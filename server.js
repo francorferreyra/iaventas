@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { connectMongo } from "./src/db/mongo.connections.js";
 import cors from 'cors'
-import ragRoutes from "./src/routes/rag.routes.js";
+// import ragRoutes from "./src/routes/rag.routes.js";
 import clientsRoutes from "./src/routes/clients.routes.js";
 
 const app = express();
@@ -13,7 +13,7 @@ app.use(cors());
 await connectMongo();
 
 // ⬅️ Rutas
-app.use("/api", ragRoutes);
+// app.use("/api", ragRoutes);
 app.use("/api/clients", clientsRoutes);
 
 app.listen(3000, () => {
