@@ -16,11 +16,7 @@ async function generateInsights() {
     const insightsCollection = db.collection("clients_ai_insights");
 
     const totalClients = await metricsCollection.countDocuments();
-    console.log("📊 Clientes en clients_metrics:", totalClients);
 
-    console.log("🔍 Buscando clientes sin IA...");
-
-    // 🔥 Lookup CORRECTO por _id
     const clients = await metricsCollection.aggregate([
       {
         $lookup: {
@@ -119,7 +115,6 @@ ${JSON.stringify(client)}
 
       } catch (error) {
         console.log("❌ Error cliente:", client._id);
-        console.log(error.message);
       }
     }
 

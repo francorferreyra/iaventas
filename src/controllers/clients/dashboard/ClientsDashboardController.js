@@ -2,7 +2,7 @@ import { buildClientsResponse } from '../../../controllers/clients/ClientsServic
 
 export async function getClientsDashboard(req, res) {
   try {
-    const clients = await buildClientsResponse( {
+    const clients = await buildClientsResponse(req.conn, {
       limit: 1000,
     })
 

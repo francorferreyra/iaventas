@@ -4,7 +4,7 @@ export async function getTopClients(req, res) {
   try {
     const limit = Number(req.query.limit) || 10
 
-    const data = await buildClientsResponse( {
+    const data = await buildClientsResponse(req.conn, {
       limit,
       sortBy: 'scoreRecompra',
       order: 'desc',

@@ -15,12 +15,12 @@ const ClientAIInsightSchema = new mongoose.Schema(
 )
 
 export function ClientAIInsightModel(conn) {
+  if (!conn) throw new Error("Connection requerida en ClientAIInsightModel")
 
-  const connection = conn || mongoose
-
-  return connection.models.ClientAIInsight ||
-    connection.model(
+  return conn.models.ClientAIInsight ||
+    conn.model(
       'ClientAIInsight',
       ClientAIInsightSchema
     )
 }
+

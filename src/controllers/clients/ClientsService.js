@@ -4,7 +4,7 @@ import { enrichClient } from './ClientsEnricher.js'
 const DB_SORT_FIELDS = ['diasSinComprar', 'createdAt', 'nombre']
 const MEMORY_SORT_FIELDS = ['scoreRecompra', 'activo', 'segmentoAuto']
 
-export async function buildClientsResponse(
+export async function buildClientsResponse(conn,
   {
     limit = 20,
     skip = 0,
@@ -20,7 +20,7 @@ export async function buildClientsResponse(
     : null
 
   // 🔥 SIN conn
-  const rawData = await getClientMetricsWithInsights({
+  const rawData = await getClientMetricsWithInsights(conn,{
     limit,
     skip,
     filters,

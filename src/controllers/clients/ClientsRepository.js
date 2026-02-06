@@ -1,11 +1,15 @@
 import { ClientMetricsModel } from '../../models/ClientMetrics.model.js'
 import { ClientAIInsightModel } from '../../models/ClientAIInsight.model.js'
 
-export async function getClientMetricsWithInsights(
-  { limit = 20, skip = 0, filters = {}, sort } = {}
-) {
-  const ClientMetrics = ClientMetricsModel()
-  const ClientAIInsight = ClientAIInsightModel()
+export async function getClientMetricsWithInsights(conn,{
+  limit = 20,
+  skip = 0,
+  filters = {},
+  sort = null
+} = {}) {
+
+  const ClientMetrics = ClientMetricsModel(conn)
+  const ClientAIInsight = ClientAIInsightModel(conn)
 
   const metricsQuery = {}
 
@@ -23,6 +27,7 @@ export async function getClientMetricsWithInsights(
     }
   }
 
+  // 🔥 FIX ACÁ
   const query = ClientMetrics.find(metricsQuery)
 
   if (sort) {

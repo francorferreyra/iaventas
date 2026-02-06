@@ -12,7 +12,7 @@ export async function getClientsList(req, res) {
       scoreMin,
     } = req.query
 
-    const clients = await buildClientsResponse( {
+    const clients = await buildClientsResponse(req.conn, {
       limit: Number(limit),
       skip: Number(skip),
       sortBy,

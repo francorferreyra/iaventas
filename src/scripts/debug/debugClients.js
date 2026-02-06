@@ -5,8 +5,6 @@ async function run() {
   await connectMongo()
   const conn = getMarketingConnection()
 
-  console.log('📛 DB real:', conn.db.databaseName)
-  console.log('🌐 URI:', process.env.MONGODB_URI)
 
   const collections = await conn.db.listCollections().toArray()
   console.log(
@@ -22,8 +20,6 @@ async function run() {
     .collection('clients_ai_insights')
     .findOne()
 
-  console.log('RAW count:', count)
-  console.log('RAW sample:', one)
 
   process.exit(0)
 }

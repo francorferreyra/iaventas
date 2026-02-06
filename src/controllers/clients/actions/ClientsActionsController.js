@@ -6,7 +6,10 @@ export async function getClientsActions(req, res) {
   try {
     const { limit = 50 } = req.query
 
-    const clients = await buildClientsResponse( Number(limit))
+    const clients = await buildClientsResponse(req.conn, {
+  limit: Number(limit),
+})
+
 
     const actions = []
     const trackingPromises = []
