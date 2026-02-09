@@ -1,21 +1,36 @@
 import "dotenv/config";
 import express from "express";
+import cors from "cors";
+
 import { connectMongo } from "./src/db/mongo.connections.js";
-import cors from 'cors'
-// import ragRoutes from "./src/routes/rag.routes.js";
 import clientsRoutes from "./src/routes/clients.routes.js";
+import { startClientsSyncJob } from "./src/jobs/syncClients.job.js";
 
 const app = express();
+
 app.use(express.json());
 app.use(cors());
 
-// ⬅️ Conectar DB primero
-await connectMongo();
+async function bootstrap() {
+  try {
 
-// ⬅️ Rutas
-// app.use("/api", ragRoutes);
-app.use("/api/clients", clientsRoutes);
+    // ✅ Conectar Mongo
+    await connectMongo()
 
-app.listen(3000, () => {
-  console.log("🚀 Servidor corriendo en http://localhost:3000");
-});
+    // ✅ Iniciar CRON
+    startClientsSyncJob()
+
+    // ✅ Rutas
+    app.use("/api/clients", clientsRoutes)
+
+    app.listen(3000, () => {
+      console.log("🚀 Servidor corriendo en http://localhost:3000")
+    })
+
+  } catch (error) {
+    console.error("❌ Error inicializando server:", error)
+    process.exit(1)
+  }
+}
+
+bootstrap()

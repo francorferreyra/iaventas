@@ -13,6 +13,8 @@ const ClientMetricsSchema = new mongoose.Schema(
     anios: [Number],
     primeraCompra: Date,
     ultimaCompra: Date,
+    vectorizedAt: Date,
+    vectorVersion: Number
   },
   { collection: 'clients_metrics' }
 )

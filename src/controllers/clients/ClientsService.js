@@ -63,5 +63,9 @@ export async function buildClientsResponse(conn,
     })
   }
 
-  return result
+  return {
+  clients: result,
+  rawCount: rawData.length
+}
+
 }
