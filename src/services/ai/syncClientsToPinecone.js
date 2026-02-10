@@ -14,21 +14,18 @@ export async function syncClientsToPinecone(conn, options = {}) {
     batchSize = BATCH_SIZE
   } = options
 
-  console.log('🧠 Sync Pinecone iniciado')
-  console.log('Modo FULL SYNC:', fullSync)
-
   const pineconeIndex = getPineconeIndex()
   const ClientMetrics = ClientMetricsModel(conn)
 
   let totalProcessed = 0
-  let skip = 0   // 🔥 PAGINACIÓN REAL
+  let skip = 0  
 
   while (true) {
 
     const { clients, rawCount } = await buildClientsResponse(conn, {
       limit: batchSize,
-      skip, // 🔥 IMPORTANTÍSIMO
-      disableComputedFilters: true, // 🔥 evita que el filtrado rompa la paginación
+      skip, 
+      disableComputedFilters: true, 
       filters: fullSync
         ? {}
         : {
@@ -37,9 +34,6 @@ export async function syncClientsToPinecone(conn, options = {}) {
           }
     })
 
-    console.log("📦 Clientes obtenidos:", clients.length)
-
-    // 🔥 CORTE CORRECTO
     if (rawCount === 0) break
 
     const vectors = []
@@ -66,7 +60,7 @@ export async function syncClientsToPinecone(conn, options = {}) {
         .namespace(process.env.PINECONE_NAMESPACE)
         .upsert(vectors)
 
-      // 🔥 Marcar como vectorizado
+      //  Marcar como vectorizado
       const ids = clients.map(c => c.raw._id)
 
       await ClientMetrics.updateMany(
@@ -81,7 +75,7 @@ export async function syncClientsToPinecone(conn, options = {}) {
       console.log(`✔ Procesados: ${totalProcessed}`)
     }
 
-    // 🔥 AVANZA PAGINACIÓN
+    //  AVANZA PAGINACIÓN
     skip += batchSize
   }
 

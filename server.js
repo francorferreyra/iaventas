@@ -5,6 +5,7 @@ import cors from "cors";
 import { connectMongo } from "./src/db/mongo.connections.js";
 import clientsRoutes from "./src/routes/clients.routes.js";
 import { startClientsSyncJob } from "./src/jobs/syncClients.job.js";
+import aiRoutes from './src/routes/ai.routes.js'
 
 const app = express();
 
@@ -22,7 +23,8 @@ async function bootstrap() {
 
     // ✅ Rutas
     app.use("/api/clients", clientsRoutes)
-
+    app.use('/ai', aiRoutes)
+    
     app.listen(3000, () => {
       console.log("🚀 Servidor corriendo en http://localhost:3000")
     })
