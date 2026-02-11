@@ -6,9 +6,10 @@ import csv from "csv-parser";
 import { connectMongo, getMarketingConnection } from "../db/mongo.connections.js";
 import { getSaleModel } from "../models/index.js";
 
-// ==========================
-// Utils
-// ==========================
+/* =========================
+   Utils
+========================= */
+
 function parseDate(value) {
   if (!value) return null;
 
@@ -24,19 +25,22 @@ function parseDate(value) {
 
 function toNumber(value) {
   if (!value) return 0;
-  return Number(
-    String(value).replace(/\./g, "").replace(",", ".")
-  ) || 0;
+  return Number(String(value).replace(/\./g, "").replace(",", ".")) || 0;
 }
 
-// ==========================
-// Procesar CSV individual
-// ==========================
+function clean(value) {
+  return value ? String(value).trim() : "";
+}
+
+/* =========================
+   Procesar CSV
+========================= */
+
 async function processCSV(filePath, Sale) {
   return new Promise((resolve, reject) => {
-    const batch = [];
+
+    const operations = [];
     const BATCH_SIZE = 500;
-    let processing = false;
 
     const stream = fs.createReadStream(filePath)
       .pipe(csv({ separator: ";" }));
@@ -45,55 +49,72 @@ async function processCSV(filePath, Sale) {
       stream.pause();
 
       try {
+
         const sale = {
           Fecha: parseDate(row.Fecha),
 
-          Comprobante: row.Comprobante,
-          Cliente: row.Cliente,
-          NombreCliente: row.NombreCliente,
-          CUIT: row.CUIT,
+          Comprobante: clean(row.Comprobante),
+          Cliente: clean(row.Cliente),
 
-          Articulo: row.Artículo,
-          NombreArticulo: row.NombreArticulo,
-          Desc_Adicional: row["Desc.Adicional"],
+          NombreCliente: clean(row.NombreCliente),
+          CUIT: clean(row.CUIT),
+
+          Articulo: clean(row["Artículo"]),
+          NombreArticulo: clean(row.NombreArticulo),
+          Desc_Adicional: clean(row["Desc.Adicional"]),
 
           Cantidad: toNumber(row.Cantidad),
           P_Unit: toNumber(row["P. Unit."]),
           Total: toNumber(row.Total),
 
-          NombreVendedor: row.NombreVendedor,
-          NombreZona: row.NombreZona,
+          NombreVendedor: clean(row.NombreVendedor),
+          NombreZona: clean(row.NombreZona),
 
-          NombreRubro: row.NombreRubro,
-          NombreSubrubro: row.NombreSubrubro,
-          NombreMarca: row.NombreMarca,
-          NombreClase: row.NombreClase,
+          NombreRubro: clean(row.NombreRubro),
+          NombreSubrubro: clean(row.NombreSubrubro),
+          NombreMarca: clean(row.NombreMarca),
+          NombreClase: clean(row.NombreClase),
 
-          CodigoAlternativo1: row["Código Alternativo 1"],
-          CodigoAlternativo2: row["Código Alternativo 2"],
+          CodigoAlternativo1: clean(row["Código Alternativo 1"]),
+          CodigoAlternativo2: clean(row["Código Alternativo 2"]),
 
-          Localidad: row.Localidad,
-          NombreProvincia: row.NombreProvincia
+          Localidad: clean(row.Localidad),
+          NombreProvincia: clean(row.NombreProvincia)
         };
 
-        batch.push(sale);
+        operations.push({
+          updateOne: {
+            filter: {
+              Comprobante: sale.Comprobante,
+              Cliente: sale.Cliente,
+              Articulo: sale.Articulo,
+              Cantidad: sale.Cantidad,
+              P_Unit: sale.P_Unit
+            },
+            update: { $setOnInsert: sale },
+            upsert: true
+          }
+        });
 
-        if (batch.length >= BATCH_SIZE) {
-          await Sale.insertMany(batch, { ordered: false });
-          console.log(`📦 Insertados ${batch.length}`);
-          batch.length = 0;
+        if (operations.length >= BATCH_SIZE) {
+          await Sale.bulkWrite(operations, { ordered: false });
+          console.log(`📦 Batch ${operations.length}`);
+          operations.length = 0;
         }
+
       } catch (err) {
-        console.error("❌ Error en fila:", err);
+        console.error("❌ Error fila:", err);
       } finally {
         stream.resume();
       }
+
     });
 
     stream.on("end", async () => {
-      if (batch.length) {
-        await Sale.insertMany(batch, { ordered: false });
-        console.log(`📦 Insertados ${batch.length} (final)`);
+
+      if (operations.length) {
+        await Sale.bulkWrite(operations, { ordered: false });
+        console.log(`📦 Batch final ${operations.length}`);
       }
 
       console.log(`✔ Importado: ${path.basename(filePath)}`);
@@ -101,30 +122,25 @@ async function processCSV(filePath, Sale) {
     });
 
     stream.on("error", reject);
+
   });
 }
 
+/* =========================
+   Importar todos los CSV
+========================= */
 
-// ==========================
-// Importar todos los CSV
-// ==========================
 async function importAllCSVs() {
+
   await connectMongo();
 
-const conn = getMarketingConnection();
-console.log("🔌 readyState marketingIA:", conn.readyState);
-
-  const Sale = getSaleModel();
+  const conn = getMarketingConnection();
+  const Sale = getSaleModel(conn);
 
   const folder = path.join(process.cwd(), "data");
   const files = fs.readdirSync(folder).filter(f => f.endsWith(".csv"));
 
-  if (!files.length) {
-    console.log("⚠ No hay CSV en /data");
-    return;
-  }
-
-  console.log(`📂 Archivos detectados: ${files.length}`);
+  console.log(`📂 CSV encontrados: ${files.length}`);
 
   for (const file of files) {
     await processCSV(path.join(folder, file), Sale);

@@ -1,34 +1,20 @@
-import 'dotenv/config'
-import mongoose from 'mongoose'
-
-// ============================
-// CONFIG
-// ============================
-const MONGO_URI = process.env.MONGODB_URI
-const DB_NAME = 'marketingia'
-
-// ============================
-// CONEXIÓN
-// ============================
-async function connectMongo() {
-  console.log('🔌 Conectando a MongoDB...')
-  await mongoose.connect(MONGO_URI)
-  console.log('✅ Conectado a MongoDB')
-}
+import "dotenv/config"
+import { connectMongo, getMarketingConnection } from "../../db/mongo.connections.js"
 
 // ============================
 // REGLAS DE NEGOCIO
 // ============================
+
 function calcularSegmento(totalFacturado, compras) {
-  if (totalFacturado > 5_000_000 || compras >= 50) return 'VIP'
-  if (totalFacturado > 1_000_000 || compras >= 20) return 'FRECUENTE'
-  return 'OCASIONAL'
+  if (totalFacturado > 5_000_000 || compras >= 50) return "VIP"
+  if (totalFacturado > 1_000_000 || compras >= 20) return "FRECUENTE"
+  return "OCASIONAL"
 }
 
 function calcularPrioridad(segmento) {
-  if (segmento === 'VIP') return 'Alta'
-  if (segmento === 'FRECUENTE') return 'Media'
-  return 'Baja'
+  if (segmento === "VIP") return "Alta"
+  if (segmento === "FRECUENTE") return "Media"
+  return "Baja"
 }
 
 function calcularScoreRecompra(compras, diasSinComprar) {
@@ -41,40 +27,50 @@ function calcularScoreRecompra(compras, diasSinComprar) {
 // ============================
 // MAIN
 // ============================
+
 async function run() {
+
+  console.log("🔌 Conectando a MongoDB...")
   await connectMongo()
-  const db = mongoose.connection.db
 
-  const sales = db.collection('sales')
-  const clientsMetrics = db.collection('clients_metrics')
+  const conn = getMarketingConnection()
+  console.log("✅ DB usada:", conn.name)
 
-  console.log('📊 Generando métricas de clientes...')
+  const sales = conn.collection("sales")
+  const clientsMetrics = conn.collection("clients_metrics")
 
-  // Limpieza previa (opcional pero recomendado)
+  console.log("📊 Generando métricas de clientes...")
+
   await clientsMetrics.deleteMany({})
-  console.log('🧹 clients_metrics limpiado')
+  console.log("🧹 clients_metrics limpiado")
 
   const pipeline = [
     {
-      $group: {
-        _id: '$CUIT',
-        nombre: { $first: '$Nombre' },
-        totalFacturado: { $sum: '$Total' },
-        compras: { $sum: 1 },
-        ultimaCompra: { $max: '$Fecha' },
-      },
+      $match: {
+        Cliente: { $exists: true, $ne: "" }
+      }
     },
+    {
+      $group: {
+        _id: "$Cliente",
+        nombre: { $first: "$NombreCliente" },
+        totalFacturado: { $sum: "$Total" },
+        compras: { $sum: 1 },
+        ultimaCompra: { $max: "$Fecha" }
+      }
+    }
   ]
 
   const cursor = sales.aggregate(pipeline)
+
   let total = 0
 
   for await (const c of cursor) {
-    if (!c._id) continue
 
     const diasSinComprar = c.ultimaCompra
       ? Math.floor(
-          (Date.now() - new Date(c.ultimaCompra)) / (1000 * 60 * 60 * 24)
+          (Date.now() - new Date(c.ultimaCompra)) /
+          (1000 * 60 * 60 * 24)
         )
       : null
 
@@ -86,7 +82,7 @@ async function run() {
     )
 
     await clientsMetrics.updateOne(
-      { _id: c._id },
+      { _id: String(c._id) },
       {
         $set: {
           nombre: c.nombre,
@@ -98,7 +94,7 @@ async function run() {
           prioridad,
           scoreRecompra,
           generadoEl: new Date(),
-        },
+        }
       },
       { upsert: true }
     )
@@ -106,14 +102,13 @@ async function run() {
     total++
   }
 
-  console.log(`🎉 clients_metrics generado correctamente`)
-  console.log(`👥 Total clientes procesados: ${total}`)
+  console.log("🎉 clients_metrics generado correctamente")
+  console.log("👥 Total clientes procesados:", total)
 
   process.exit(0)
 }
 
-// ============================
-run().catch((err) => {
-  console.error('❌ Error general:', err)
+run().catch(err => {
+  console.error("❌ Error general:", err)
   process.exit(1)
 })

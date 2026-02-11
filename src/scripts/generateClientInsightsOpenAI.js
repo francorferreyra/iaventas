@@ -6,16 +6,18 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+async function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function generateInsights() {
   try {
-    await connectMongo();
 
+    await connectMongo();
     const db = getMarketingConnection();
 
     const metricsCollection = db.collection("clients_metrics");
     const insightsCollection = db.collection("clients_ai_insights");
-
-    const totalClients = await metricsCollection.countDocuments();
 
     const clients = await metricsCollection.aggregate([
       {
@@ -40,10 +42,22 @@ async function generateInsights() {
     }
 
     for (const client of clients) {
+
       try {
 
+        // ⭐ Reducimos tokens enviando solo lo necesario
+        const cleanClient = {
+          cliente: client._id,
+          nombre: client.nombre,
+          segmento: client.segmento,
+          totalFacturado: client.totalFacturado,
+          compras: client.compras,
+          diasSinComprar: client.diasSinComprar,
+          scoreRecompra: client.scoreRecompra
+        };
+
         const prompt = `
-Analiza estos datos de cliente y genera insights comerciales.
+Analiza estos datos de cliente y genera insights comerciales B2B.
 
 Responde SOLO JSON válido sin texto extra.
 
@@ -55,7 +69,7 @@ Formato requerido:
 }
 
 Datos cliente:
-${JSON.stringify(client)}
+${JSON.stringify(cleanClient)}
 `;
 
         const completion = await openai.chat.completions.create({
@@ -69,11 +83,17 @@ ${JSON.stringify(client)}
               role: "user",
               content: prompt
             }
-          ]
+          ],
         });
 
-        let content = completion.choices[0].message.content;
+        let content = completion.choices?.[0]?.message?.content;
 
+        if (!content) {
+          console.log("⚠️ IA devolvió vacío →", client._id);
+          continue;
+        }
+
+        // 🔥 Limpieza JSON
         content = content
           .replace(/```json/g, "")
           .replace(/```/g, "")
@@ -84,11 +104,10 @@ ${JSON.stringify(client)}
         try {
           parsed = JSON.parse(content);
         } catch {
-          console.log("⚠️ JSON inválido IA, se omite cliente:", client._id);
+          console.log("⚠️ JSON inválido IA →", client._id);
           continue;
         }
 
-        // 🔥 UPSERT CORRECTO
         await insightsCollection.updateOne(
           { _id: client._id },
           {
@@ -102,7 +121,6 @@ ${JSON.stringify(client)}
               accionSugerida: parsed.risk_level,
 
               scoreRecompra: client.scoreRecompra || 0,
-
               prioridad: client.prioridad || "Media",
 
               generadoEl: new Date()
@@ -113,9 +131,14 @@ ${JSON.stringify(client)}
 
         console.log("✅ Insight generado →", client._id);
 
+        // ⭐ Anti rate limit
+        await delay(500);
+
       } catch (error) {
-        console.log("❌ Error cliente:", client._id);
+        console.log("❌ Error generando insight →", client._id);
+        console.log(error.message || error);
       }
+
     }
 
     console.log("🎯 Proceso finalizado");
