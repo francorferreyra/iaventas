@@ -1,151 +1,119 @@
-import "dotenv/config";
-import OpenAI from "openai";
-import { connectMongo, getMarketingConnection } from "../db/mongo.connections.js";
+import "dotenv/config"
+import OpenAI from "openai"
+import { connectMongo, getMarketingConnection } from "../db/mongo.connections.js"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
-});
+})
 
-async function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+const BATCH_SIZE = 50
+const DELAY_MS = 600
 
-async function generateInsights() {
-  try {
+const delay = (ms) => new Promise(r => setTimeout(r, ms))
 
-    await connectMongo();
-    const db = getMarketingConnection();
+async function generateBatch(db) {
+  const metrics = db.collection("clients_metrics")
+  const insights = db.collection("clients_ai_insights")
 
-    const metricsCollection = db.collection("clients_metrics");
-    const insightsCollection = db.collection("clients_ai_insights");
+  const clients = await metrics.aggregate([
+    {
+      $lookup: {
+        from: "clients_ai_insights",
+        localField: "_id",
+        foreignField: "_id",
+        as: "ai"
+      }
+    },
+    { $match: { ai: { $size: 0 } } },
+    { $limit: BATCH_SIZE }
+  ]).toArray()
 
-    const clients = await metricsCollection.aggregate([
-      {
-        $lookup: {
-          from: "clients_ai_insights",
-          localField: "_id",
-          foreignField: "_id",
-          as: "ai"
-        }
-      },
-      {
-        $match: { ai: { $size: 0 } }
-      },
-      { $limit: 50 }
-    ]).toArray();
+  if (!clients.length) return 0
 
-    console.log("👀 Clientes encontrados sin IA:", clients.length);
+  console.log(`👥 Procesando batch: ${clients.length} clientes`)
 
-    if (!clients.length) {
-      console.log("✅ No hay clientes pendientes");
-      return;
-    }
+  for (const client of clients) {
+    try {
+      const cleanClient = {
+        cliente: client._id,
+        nombre: client.nombre,
+        segmento: client.segmento,
+        totalFacturado: client.totalFacturado,
+        compras: client.compras,
+        diasSinComprar: client.diasSinComprar,
+        scoreRecompra: client.scoreRecompra
+      }
 
-    for (const client of clients) {
-
-      try {
-
-        // ⭐ Reducimos tokens enviando solo lo necesario
-        const cleanClient = {
-          cliente: client._id,
-          nombre: client.nombre,
-          segmento: client.segmento,
-          totalFacturado: client.totalFacturado,
-          compras: client.compras,
-          diasSinComprar: client.diasSinComprar,
-          scoreRecompra: client.scoreRecompra
-        };
-
-        const prompt = `
+      const prompt = `
 Analiza estos datos de cliente y genera insights comerciales B2B.
+Responde SOLO JSON válido.
 
-Responde SOLO JSON válido sin texto extra.
-
-Formato requerido:
 {
   "risk_level": "LOW | MEDIUM | HIGH",
   "recommendations": ["string"],
   "summary": "string"
 }
 
-Datos cliente:
+Datos:
 ${JSON.stringify(cleanClient)}
-`;
+`
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-5-mini",
-          messages: [
-            {
-              role: "system",
-              content: "Sos un analista experto en marketing B2B."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-        });
+      const completion = await openai.chat.completions.create({
+        model: "gpt-5-mini",
+        messages: [
+          { role: "system", content: "Sos un analista experto en marketing B2B." },
+          { role: "user", content: prompt }
+        ]
+      })
 
-        let content = completion.choices?.[0]?.message?.content;
+      let content = completion.choices?.[0]?.message?.content
+      if (!content) continue
 
-        if (!content) {
-          console.log("⚠️ IA devolvió vacío →", client._id);
-          continue;
-        }
+      content = content.replace(/```json|```/g, "").trim()
+      const parsed = JSON.parse(content)
 
-        // 🔥 Limpieza JSON
-        content = content
-          .replace(/```json/g, "")
-          .replace(/```/g, "")
-          .trim();
+      await insights.updateOne(
+        { _id: client._id },
+        {
+          $set: {
+            resumenIA: parsed.summary,
+            accionIA: parsed.recommendations?.join("\n• "),
+            mensajeIA: `Hola ${client.nombre || "cliente"}, queremos ayudarte a optimizar tus compras.`,
+            accionSugerida: parsed.risk_level,
+            scoreRecompra: client.scoreRecompra || 0,
+            prioridad: client.prioridad || "Media",
+            generadoEl: new Date()
+          }
+        },
+        { upsert: true }
+      )
 
-        let parsed;
+      console.log("✅ Insight generado →", client._id)
+      await delay(DELAY_MS)
 
-        try {
-          parsed = JSON.parse(content);
-        } catch {
-          console.log("⚠️ JSON inválido IA →", client._id);
-          continue;
-        }
-
-        await insightsCollection.updateOne(
-          { _id: client._id },
-          {
-            $set: {
-              resumenIA: parsed.summary,
-
-              accionIA: parsed.recommendations?.join("\n• "),
-
-              mensajeIA: `Hola ${client.nombre || "cliente"}, queremos ayudarte a optimizar tus compras y ofrecerte beneficios personalizados.`,
-
-              accionSugerida: parsed.risk_level,
-
-              scoreRecompra: client.scoreRecompra || 0,
-              prioridad: client.prioridad || "Media",
-
-              generadoEl: new Date()
-            }
-          },
-          { upsert: true }
-        );
-
-        console.log("✅ Insight generado →", client._id);
-
-        // ⭐ Anti rate limit
-        await delay(500);
-
-      } catch (error) {
-        console.log("❌ Error generando insight →", client._id);
-        console.log(error.message || error);
-      }
-
+    } catch (err) {
+      console.log("❌ Error cliente →", client._id)
     }
-
-    console.log("🎯 Proceso finalizado");
-
-  } catch (error) {
-    console.error("❌ Error general:", error);
   }
+
+  return clients.length
 }
 
-generateInsights();
+async function run() {
+  await connectMongo()
+  const db = getMarketingConnection()
+
+  console.log("🚀 Generando insights IA (batch automático)")
+
+  let processed = 0
+  while (true) {
+    const count = await generateBatch(db)
+    if (count === 0) break
+    processed += count
+  }
+
+  console.log(`🎉 Proceso finalizado. Total insights generados: ${processed}`)
+  process.exit(0)
+}
+
+run()
