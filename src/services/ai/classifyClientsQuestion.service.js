@@ -1,20 +1,21 @@
-import { askGPT } from './openaiChat.service.js'
+import { openaiChat } from './openaiChat.service.js'
 
 export async function classifyClientsQuestion(query) {
   const prompt = `
-Clasificá la siguiente pregunta en UNO de estos tipos:
+Clasificá la intención de esta pregunta en una sola palabra:
 
 - search_clients
 - recommend_products
 - campaign_idea
-- general_advice
 
-Respondé SOLO con el tipo.
+Pregunta: "${query}"
 
-Pregunta:
-"${query}"
+Respondé SOLO con la categoría.
 `
 
-  const response = await askGPT(prompt)
-  return response.trim()
+  const result = await openaiChat([
+    { role: 'user', content: prompt }
+  ])
+
+  return result.trim().toLowerCase()
 }
