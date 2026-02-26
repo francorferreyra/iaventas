@@ -1,4 +1,4 @@
-import { openaiChat } from './openaiChat.service.js'
+import { askOpenAI } from '../ai/OpenAIService.js'
 
 export async function classifyClientsQuestion(query) {
   const prompt = `
@@ -13,7 +13,7 @@ Pregunta: "${query}"
 Respondé SOLO con la categoría.
 `
 
-  const result = await openaiChat([
+  const result = await askOpenAI([
     { role: 'user', content: prompt }
   ])
 

@@ -1,5 +1,5 @@
 // src/services/ai/recommendProductsAI.service.js
-
+import { askOpenAI } from '../ai/OpenAIService.js'
 /**
  * Recomendación de productos / campañas
  * @param {Object} conn conexión a la DB
@@ -95,7 +95,7 @@ Respondé SOLO en JSON con esta estructura:
 }
 `
 
-const messageResponse = await askGPT(messagePrompt, { maxTokens: 300 })
+const messageResponse = await askOpenAI(messagePrompt, { maxTokens: 300 })
 
 let messageParsed
 try {

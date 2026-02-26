@@ -11,15 +11,20 @@ const MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini'
    Core
 ========================== */
 
-export async function askOpenAI({ system, user }) {
+export async function askOpenAI({
+  system,
+  user,
+  temperature = 0.4,
+  maxTokens = 300,
+}) {
   const response = await openai.responses.create({
     model: MODEL,
     input: [
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    temperature: 0.4,
-    max_output_tokens: 300,
+    temperature,
+    max_output_tokens: maxTokens,
   })
 
   return response.output_text?.trim() || ''

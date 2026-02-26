@@ -1,4 +1,3 @@
-import { classifyClientsQuestion } from '../../services/ai/classifyClientsQuestion.service.js'
 import { searchClientsAI } from '../../services/ai/searchClientsAI.service.js'
 import { recommendProductsAI } from '../../services/ai/recommendProductsAI.service.js'
 

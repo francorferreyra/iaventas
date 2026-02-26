@@ -1,28 +1,41 @@
-import { openaiChat } from './openaiChat.service.js'
+import { askOpenAI } from './OpenAIService.js'
 
 export async function classifyAnalyticsQuestion(question) {
-  const prompt = `
-Clasificá la pregunta en uno de estos tipos:
+  const systemPrompt = `
+Sos un clasificador de preguntas de negocio.
+NO respondas la pregunta.
+NO inventes datos.
+Solo devolvé JSON válido.
 
-- TOP_PRODUCTS_BY_MONTH (requiere month)
+Tipos posibles:
+- TOP_PRODUCTS_BY_MONTH
 - PRODUCTS_TO_PROMOTE
 - BUNDLE_PRODUCTS
-- CLIENTS_FOR_PRODUCT (requiere product)
+- CLIENTS_FOR_PRODUCT
 
-Respondé SOLO JSON.
+Reglas:
+- Si preguntan "qué producto se vendió más en X mes" → TOP_PRODUCTS_BY_MONTH
+- Si preguntan "qué productos promocionar" → PRODUCTS_TO_PROMOTE
+- Si preguntan "qué productos se venden juntos" → BUNDLE_PRODUCTS
+- Si preguntan "a qué clientes ofrecer X producto" → CLIENTS_FOR_PRODUCT
 
-Pregunta: "${question}"
-
-Ejemplo:
+Formato de salida (JSON PURO, sin texto):
 {
-  "type": "TOP_PRODUCTS_BY_MONTH",
-  "month": "enero"
+  "type": "...",
+  "month": "MM",
+  "product": "string"
 }
 `
 
-  const response = await openaiChat([
-    { role: 'user', content: prompt }
-  ])
+  const response = await askOpenAI({
+    system: systemPrompt,
+    user: question
+  })
 
-  return JSON.parse(response)
+  try {
+    return JSON.parse(response)
+  } catch (error) {
+    console.error('Error parseando clasificación IA:', response)
+    return { type: 'UNKNOWN' }
+  }
 }
