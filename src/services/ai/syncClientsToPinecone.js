@@ -1,5 +1,5 @@
 import { buildClientsResponse } from '../../controllers/clients/ClientsService.js'
-import { createEmbedding } from './openaiEmbedding.service.js'
+import { getEmbedding } from './OpenAIService.js'
 import { getPineconeIndex } from './pinecone.service.js'
 import { ClientMetricsModel } from '../../models/ClientMetrics.model.js'
 import { buildClientVectorText } from '../clients/ClientsVectorBuilder.js'
@@ -41,7 +41,7 @@ export async function syncClientsToPinecone(conn, options = {}) {
     for (const client of clients) {
 
       const text = buildClientVectorText(client)
-      const embedding = await createEmbedding(text)
+      const embedding = await getEmbedding(text)
 
       vectors.push({
         id: String(client.raw._id),

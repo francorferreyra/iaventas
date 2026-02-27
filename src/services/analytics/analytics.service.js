@@ -6,10 +6,12 @@ import mongoose from 'mongoose'
  * 1️⃣ Producto más vendido en un mes
  * @param {string} month - MM (01–12)
  */
-export async function getTopProductsByMonth(month) {
+export async function getTopProductsByMonth(conn, month) {
   if (!month) throw new Error('Mes requerido')
 
   const monthInt = parseInt(month, 10)
+
+  const SaleModel = conn.model('Sale')
 
   const result = await SaleModel.aggregate([
     {
@@ -27,12 +29,8 @@ export async function getTopProductsByMonth(month) {
         totalFacturado: { $sum: '$Total' }
       }
     },
-    {
-      $sort: { totalVendido: -1 }
-    },
-    {
-      $limit: 10
-    }
+    { $sort: { totalVendido: -1 } },
+    { $limit: 10 }
   ])
 
   return result
@@ -116,8 +114,11 @@ export async function getBundledProducts() {
  * - baja frecuencia o alta inactividad
  */
 export async function getClientsForProduct(productName) {
-  if (!productName) throw new Error('Producto requerido')
+  if (!productName || typeof productName !== 'string') {
+    throw new Error('Producto requerido')
+  }
 
+  // 1️⃣ Clientes que compraron el producto
   const clientsWhoBought = await SaleModel.aggregate([
     {
       $match: {
@@ -134,9 +135,14 @@ export async function getClientsForProduct(productName) {
     }
   ])
 
+  if (!clientsWhoBought.length) {
+    return []
+  }
+
   const clientIds = clientsWhoBought.map(c => c._id)
 
-  const clients = await ClientMetrics.find({
+  // 2️⃣ Filtrar clientes inactivos
+  const clients = await ClientMetricsModel.find({
     _id: { $in: clientIds },
     diasSinComprar: { $gte: 60 }
   })

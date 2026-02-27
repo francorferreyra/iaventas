@@ -1,4 +1,4 @@
-import { createEmbedding } from '../ai/openaiEmbedding.service.js'
+import { getEmbedding } from '../ai/OpenAIService.js'
 import { getPineconeIndex } from '../ai/pinecone.service.js'
 import { buildClientsResponse } from '../../controllers/clients/ClientsService.js'
 
@@ -12,7 +12,7 @@ export async function searchClientsAI(conn, query, options = {}) {
 console.log("Query recibida IA:", query)
 
   //  1 — Crear embedding del texto de búsqueda
-  const embedding = await createEmbedding(query)
+  const embedding = await getEmbedding(query)
 
   //  2 — Buscar en Pinecone
   const results = await pineconeIndex

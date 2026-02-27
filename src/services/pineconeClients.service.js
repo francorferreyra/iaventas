@@ -1,6 +1,6 @@
 import { Pinecone } from '@pinecone-database/pinecone'
 import { buildClientEmbeddingText } from '../utils/buildClientEmbeddingText.js'
-import { createEmbedding } from '../services/ai/openaiEmbedding.service.js'
+import { getEmbedding } from '../services/ai/OpenAIService.js'
 
 const pc = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY,
@@ -13,7 +13,7 @@ export async function upsertClientsToPinecone(clients) {
 
   for (const { metric, insight } of clients) {
     const text = buildClientEmbeddingText(metric, insight)
-    const embedding = await createEmbedding(text)
+    const embedding = await getEmbedding(text)
 
     vectors.push({
       id: String(metric._id),

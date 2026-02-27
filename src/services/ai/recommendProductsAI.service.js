@@ -1,12 +1,7 @@
-// src/services/ai/recommendProductsAI.service.js
-import { askOpenAI } from '../ai/OpenAIService.js'
-/**
- * Recomendación de productos / campañas
- * @param {Object} conn conexión a la DB
- * @param {String} query pregunta del usuario
- */
+import { askOpenAI } from './OpenAIService.js'
+
 export async function recommendProductsAI(conn, query) {
-  // 1️⃣ Detectar tipo de recomendación
+
   const q = query.toLowerCase()
 
   let mode = 'general'
@@ -19,8 +14,6 @@ export async function recommendProductsAI(conn, query) {
     mode = 'products'
   }
 
-  // 2️⃣ Buscar productos más vendidos (ejemplo simple)
-  const ProductModel = conn.model('Product')
   const SaleModel = conn.model('Sale')
 
   const topProducts = await SaleModel.aggregate([
@@ -44,8 +37,17 @@ export async function recommendProductsAI(conn, query) {
     { $unwind: '$product' }
   ])
 
-  // 3️⃣ Respuesta estructurada
+  if (!topProducts.length) {
+    return {
+      type: mode,
+      message: 'No se encontraron productos para recomendar',
+      products: []
+    }
+  }
+
+  // 🔹 MODO PRODUCTOS
   if (mode === 'products') {
+
     return {
       type: 'recommend_products',
       message: 'Productos recomendados para impulsar ventas',
@@ -57,74 +59,64 @@ export async function recommendProductsAI(conn, query) {
     }
   }
 
+  // 🔹 MODO CAMPAÑA
   if (mode === 'campaign') {
-    return {
-      type: 'campaign_idea',
-      message: 'Idea de campaña sugerida',
-      campaign: {
-        titulo: 'Promo clientes activos',
-        objetivo: 'Aumentar recompra',
-        productosSugeridos: topProducts.slice(0, 3).map(p => p.product.nombre),
-        mensaje:
-          'Aprovechá un descuento exclusivo por tiempo limitado en nuestros productos más vendidos.'
-      }
-    }
-  }
 
-  // 4️⃣ Fallback
-// 🔹 Generar mensaje comercial con IA
+    const campaignPrompt = `
+Sos un experto en marketing B2B.
 
-const messagePrompt = `
-Sos un experto en marketing y ventas B2B.
-
-Producto recomendado: ${selected.product.nombre}
-Motivo de recomendación: ${parsed.reason}
+Productos más vendidos:
+${topProducts.map(p => `- ${p.product.nombre}`).join('\n')}
 
 Generá:
+1) Nombre de campaña
+2) Objetivo
+3) Mensaje corto tipo WhatsApp
+4) Llamado a la acción
 
-1) Mensaje corto tipo WhatsApp (persuasivo y directo)
-2) Versión más formal tipo email
-3) Llamado a la acción claro
-
-Respondé SOLO en JSON con esta estructura:
-
+Respondé SOLO en JSON:
 {
-  "whatsapp": string,
-  "email": string,
+  "titulo": string,
+  "objetivo": string,
+  "mensaje": string,
   "cta": string
 }
 `
 
-const messageResponse = await askOpenAI(messagePrompt, { maxTokens: 300 })
+    const response = await askOpenAI({
+      system: 'Sos especialista en campañas comerciales.',
+      user: campaignPrompt,
+      maxTokens: 300
+    })
 
-let messageParsed
-try {
-  messageParsed = JSON.parse(messageResponse)
-} catch (e) {
-  messageParsed = {
-    whatsapp: "Consultanos por este producto destacado.",
-    email: "Tenemos una recomendación especial para tu empresa.",
-    cta: "Contactanos hoy mismo."
+    let campaignData
+
+    try {
+      campaignData = JSON.parse(response)
+    } catch {
+      campaignData = {
+        titulo: 'Promo especial productos destacados',
+        objetivo: 'Impulsar ventas de productos top',
+        mensaje: 'Aprovechá nuestros productos más vendidos con beneficios exclusivos.',
+        cta: 'Consultanos hoy mismo.'
+      }
+    }
+
+    return {
+      type: 'campaign_idea',
+      campaign: campaignData,
+      productosBase: topProducts.slice(0, 3).map(p => p.product.nombre)
+    }
   }
-}
 
-return {
-  type: mode === 'campaign'
-    ? 'campaign_recommendation'
-    : 'product_recommendation',
-
-  product: {
-    id: selected.product._id,
-    nombre: selected.product.nombre,
-    totalVendidos: selected.totalVendidos
-  },
-
-  reason: parsed.reason,
-
-  marketing: {
-    whatsapp: messageParsed.whatsapp,
-    email: messageParsed.email,
-    cta: messageParsed.cta
+  // 🔹 Fallback general
+  return {
+    type: 'recommend_products',
+    message: 'Productos sugeridos',
+    products: topProducts.map(p => ({
+      id: p.product._id,
+      nombre: p.product.nombre,
+      totalVendidos: p.totalVendidos
+    }))
   }
-}
 }

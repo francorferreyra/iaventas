@@ -14,7 +14,6 @@ const MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini'
 export async function askOpenAI({
   system,
   user,
-  temperature = 0.4,
   maxTokens = 300,
 }) {
   const response = await openai.responses.create({
@@ -23,7 +22,6 @@ export async function askOpenAI({
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    temperature,
     max_output_tokens: maxTokens,
   })
 
