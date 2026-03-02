@@ -6,39 +6,45 @@ export async function classifyIntent(question) {
 Sos un clasificador de intención para un sistema de analítica y clientes.
 
 NO respondas la pregunta.
-NO inventes datos.
+NO expliques nada.
 Respondé SOLO JSON válido.
 
-Dominios posibles:
+Dominios:
 - analytics
 - clients
 - unknown
 
-Tipos posibles:
+Tipos:
 
-Para analytics:
+Analytics:
 - TOP_PRODUCTS_BY_MONTH
 - PRODUCTS_TO_PROMOTE
 - BUNDLE_PRODUCTS
 - CLIENTS_FOR_PRODUCT
 
-Para clients:
+Clients:
 - search_clients
 - recommend_products
 - campaign_idea
 
-Reglas:
+Reglas de clasificación:
 
-Analytics:
-- "qué producto se vendió más en X mes" → TOP_PRODUCTS_BY_MONTH
-- "qué productos promocionar" → PRODUCTS_TO_PROMOTE
-- "qué productos se venden juntos" → BUNDLE_PRODUCTS
-- "a qué clientes ofrecer X producto" → CLIENTS_FOR_PRODUCT
+Si la pregunta habla de:
+- producto más vendido en un mes → TOP_PRODUCTS_BY_MONTH
+- promocionar, publicitar, recomendar producto, impulsar ventas → PRODUCTS_TO_PROMOTE
+- productos que se venden juntos → BUNDLE_PRODUCTS
+- clientes para ofrecer un producto → CLIENTS_FOR_PRODUCT
 
-Clients:
-- Buscar clientes → search_clients
-- Recomendar productos → recommend_products
-- Idea de campaña → campaign_idea
+Si la pregunta habla de:
+- buscar clientes → search_clients
+- recomendar productos a clientes → recommend_products
+- ideas de campaña → campaign_idea
+
+Si no coincide con nada → unknown.
+
+Si se menciona un mes (enero a diciembre),
+extraerlo como:
+"01" a "12".
 
 Formato obligatorio:
 
@@ -49,7 +55,7 @@ Formato obligatorio:
     "month": "MM o null",
     "product": "string o null"
   }
-}
+} 
 `
 
   const response = await askOpenAI({

@@ -1,5 +1,5 @@
 import { classifyIntent } from '../../services/ai/classifyIntent.service.js'
-
+import { generateAnalyticsExplanation } from '../../services/ai/generateAnalyticsExplanation.service.js'
 import {
   getTopProductsByMonth,
   getProductsToPromote,
@@ -21,7 +21,6 @@ export const askAI = async (req, res) => {
 
     // 1️⃣ Clasificación global
     const intent = await classifyIntent(input)
-console.log('INTENT:', intent)
     let data = null
 
     // 2️⃣ Router interno por dominio
@@ -30,19 +29,22 @@ console.log('INTENT:', intent)
       switch (intent.type) {
 
         case 'TOP_PRODUCTS_BY_MONTH':
-          data = await getTopProductsByMonth(intent.params?.month)
+          data = await getTopProductsByMonth(req.conn, intent.params?.month)
           break
 
         case 'PRODUCTS_TO_PROMOTE':
-          data = await getProductsToPromote()
-          break
+  data = await getProductsToPromote(
+    req.conn,
+    intent.params?.month
+  )
+  break
 
         case 'BUNDLE_PRODUCTS':
-          data = await getBundledProducts()
+          data = await getBundledProducts(req.conn)
           break
 
         case 'CLIENTS_FOR_PRODUCT':
-          data = await getClientsForProduct(intent.params?.product)
+          data = await getClientsForProduct(req.conn, intent.params?.product)
           break
 
         default:
@@ -67,10 +69,17 @@ console.log('INTENT:', intent)
       }
     }
 
-    return res.json({
-      intent,
-      data
-    })
+   let explanation = null
+
+if (intent.domain === 'analytics') {
+  explanation = await generateAnalyticsExplanation(intent, data)
+}
+
+return res.json({
+  intent,
+  data,
+  explanation
+})
 
   } catch (error) {
     console.error('AI Unified Error:', error)

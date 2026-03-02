@@ -1,4 +1,4 @@
-import SaleModel from '../../models/SaleModel.js'
+import SaleSchema from '../../models/SaleModel.js'
 import { ClientMetricsModel } from '../../models/ClientMetrics.model.js'
 import mongoose from 'mongoose'
 
@@ -8,20 +8,16 @@ import mongoose from 'mongoose'
  */
 export async function getTopProductsByMonth(conn, month) {
   if (!month) throw new Error('Mes requerido')
+  if (!conn) throw new Error('Conexión requerida')
 
   const monthInt = parseInt(month, 10)
 
-  const SaleModel = conn.model('Sale')
+  const SaleModel =
+    conn.models.Sale || conn.model('Sale', SaleSchema)
 
   const result = await SaleModel.aggregate([
-    {
-      $addFields: {
-        month: { $month: '$Fecha' }
-      }
-    },
-    {
-      $match: { month: monthInt }
-    },
+    { $addFields: { month: { $month: '$Fecha' } } },
+    { $match: { month: monthInt } },
     {
       $group: {
         _id: '$NombreArticulo',
@@ -35,15 +31,34 @@ export async function getTopProductsByMonth(conn, month) {
 
   return result
 }
-
 /**
  * 2️⃣ Productos a promocionar
  * Criterio:
  * - pocas ventas
  * - pero presentes en historial
  */
-export async function getProductsToPromote() {
-  const result = await SaleModel.aggregate([
+export async function getProductsToPromote(conn, month) {
+  if (!conn) throw new Error('Conexión requerida')
+
+  const SaleModel =
+    conn.models.Sale || conn.model('Sale', SaleSchema)
+
+  const pipeline = []
+
+  // Si viene mes → filtramos
+  if (month) {
+    const monthInt = parseInt(month, 10)
+
+    pipeline.push({
+      $addFields: { month: { $month: '$Fecha' } }
+    })
+
+    pipeline.push({
+      $match: { month: monthInt }
+    })
+  }
+
+  pipeline.push(
     {
       $group: {
         _id: '$NombreArticulo',
@@ -62,12 +77,10 @@ export async function getProductsToPromote() {
         facturacion: -1
       }
     },
-    {
-      $limit: 10
-    }
-  ])
+    { $limit: 10 }
+  )
 
-  return result
+  return await SaleModel.aggregate(pipeline)
 }
 
 /**
@@ -75,7 +88,7 @@ export async function getProductsToPromote() {
  * Basado en comprobantes compartidos
  */
 export async function getBundledProducts() {
-  const result = await SaleModel.aggregate([
+  const result = await SaleSchema.aggregate([
     {
       $group: {
         _id: '$Comprobante',
@@ -119,7 +132,7 @@ export async function getClientsForProduct(productName) {
   }
 
   // 1️⃣ Clientes que compraron el producto
-  const clientsWhoBought = await SaleModel.aggregate([
+  const clientsWhoBought = await SaleSchema.aggregate([
     {
       $match: {
         NombreArticulo: {
