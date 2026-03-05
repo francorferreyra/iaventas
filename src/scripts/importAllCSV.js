@@ -2,6 +2,7 @@ import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import csv from "csv-parser";
+import iconv from "iconv-lite";
 
 import { connectMongo, getMarketingConnection } from "../db/mongo.connections.js";
 import { getSaleModel } from "../models/index.js";
@@ -42,14 +43,23 @@ async function processCSV(filePath, Sale) {
     const operations = [];
     const BATCH_SIZE = 500;
 
-    const stream = fs.createReadStream(filePath)
-      .pipe(csv({ separator: ";" }));
+   const stream = fs.createReadStream(filePath)
+  .pipe(iconv.decodeStream("latin1")) 
+  .pipe(csv({
+    separator: ";",
+    mapHeaders: ({ header }) =>
+      header
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+  }));
 
     stream.on("data", async (row) => {
       stream.pause();
 
       try {
-
+// console.log("HEADERS:", Object.keys(row));
+//     process.exit(0); // 👈 solo para testear una fila y frenar
         const sale = {
           Fecha: parseDate(row.Fecha),
 
@@ -59,7 +69,7 @@ async function processCSV(filePath, Sale) {
           NombreCliente: clean(row.NombreCliente),
           CUIT: clean(row.CUIT),
 
-          Articulo: clean(row["Artículo"]),
+          Articulo: clean(row["Articulo"]),
           NombreArticulo: clean(row.NombreArticulo),
           Desc_Adicional: clean(row["Desc.Adicional"]),
 
@@ -75,8 +85,8 @@ async function processCSV(filePath, Sale) {
           NombreMarca: clean(row.NombreMarca),
           NombreClase: clean(row.NombreClase),
 
-          CodigoAlternativo1: clean(row["Código Alternativo 1"]),
-          CodigoAlternativo2: clean(row["Código Alternativo 2"]),
+         CodigoAlternativo1: clean(row["Codigo Alternativo 1"]),
+         CodigoAlternativo2: clean(row["Codigo Alternativo 2"]),
 
           Localidad: clean(row.Localidad),
           NombreProvincia: clean(row.NombreProvincia)

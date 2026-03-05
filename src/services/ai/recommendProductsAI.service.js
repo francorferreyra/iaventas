@@ -1,4 +1,5 @@
 import { askOpenAI } from './OpenAIService.js'
+import { filterValidProducts } from '../../services/hertrac/filterProductsWithPrice.service.js'
 
 export async function recommendProductsAI(conn, query) {
 
@@ -25,7 +26,8 @@ export async function recommendProductsAI(conn, query) {
       }
     },
     { $sort: { totalVendidos: -1 } },
-    { $limit: 5 },
+    { $limit: 10 },
+
     {
       $lookup: {
         from: 'products',
@@ -34,6 +36,7 @@ export async function recommendProductsAI(conn, query) {
         as: 'product'
       }
     },
+
     { $unwind: '$product' }
   ])
 
@@ -45,15 +48,34 @@ export async function recommendProductsAI(conn, query) {
     }
   }
 
+  // 🔥 FILTRO HERTRAC (precio > 0)
+
+  const validProducts = await filterValidProducts(
+    topProducts.map(p => p.product.cod)
+  )
+
+  const filteredProducts = topProducts.filter(p =>
+    validProducts.includes(p.product.cod)
+  )
+
+  if (!filteredProducts.length) {
+    return {
+      type: mode,
+      message: 'Los productos encontrados no tienen precio disponible',
+      products: []
+    }
+  }
+
   // 🔹 MODO PRODUCTOS
   if (mode === 'products') {
 
     return {
       type: 'recommend_products',
       message: 'Productos recomendados para impulsar ventas',
-      products: topProducts.map(p => ({
+      products: filteredProducts.slice(0, 5).map(p => ({
         id: p.product._id,
-        nombre: p.product.nombre,
+        cod: p.product.cod,
+        nombre: p.product.name,
         totalVendidos: p.totalVendidos
       }))
     }
@@ -66,7 +88,7 @@ export async function recommendProductsAI(conn, query) {
 Sos un experto en marketing B2B.
 
 Productos más vendidos:
-${topProducts.map(p => `- ${p.product.nombre}`).join('\n')}
+${filteredProducts.map(p => `- ${p.product.name}`).join('\n')}
 
 Generá:
 1) Nombre de campaña
@@ -105,17 +127,19 @@ Respondé SOLO en JSON:
     return {
       type: 'campaign_idea',
       campaign: campaignData,
-      productosBase: topProducts.slice(0, 3).map(p => p.product.nombre)
+      productosBase: filteredProducts.slice(0, 3).map(p => p.product.name)
     }
   }
 
   // 🔹 Fallback general
+
   return {
     type: 'recommend_products',
     message: 'Productos sugeridos',
-    products: topProducts.map(p => ({
+    products: filteredProducts.slice(0, 5).map(p => ({
       id: p.product._id,
-      nombre: p.product.nombre,
+      cod: p.product.cod,
+      nombre: p.product.name,
       totalVendidos: p.totalVendidos
     }))
   }
