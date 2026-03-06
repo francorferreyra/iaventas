@@ -12,7 +12,7 @@ import {
 import { searchClientsAI } from '../../services/ai/searchClientsAI.service.js'
 import { recommendProductsAI } from '../../services/ai/recommendProductsAI.service.js'
 import { generateExecutiveAnalysis } from '../../services/ai/generateExecutiveAnalysis.service.js'
-
+import { detectSalesOpportunities } from '../../services/analytics/detectSalesOpportunities.service.js'
 
 export const askAI = async (req, res) => {
 
@@ -91,6 +91,12 @@ export const askAI = async (req, res) => {
           )
 
           break
+
+          case 'SALES_OPPORTUNITIES':
+
+  data = await detectSalesOpportunities(req.conn)
+
+break
 
 
         default:
