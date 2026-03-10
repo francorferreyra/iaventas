@@ -14,21 +14,47 @@ import { recommendProductsAI } from '../../services/ai/recommendProductsAI.servi
 import { generateExecutiveAnalysis } from '../../services/ai/generateExecutiveAnalysis.service.js'
 import { detectSalesOpportunities } from '../../services/analytics/detectSalesOpportunities.service.js'
 
+
+// 🧠 Memoria simple de conversaciones
+const conversations = new Map()
+
+function getHistory(userId) {
+  if (!conversations.has(userId)) {
+    conversations.set(userId, [])
+  }
+  return conversations.get(userId)
+}
+
+
 export const askAI = async (req, res) => {
 
   try {
 
-    const { question, query } = req.body
+    const { question, query, userId = "default" } = req.body
     const input = question || query
 
     if (!input) {
       return res.status(400).json({ msg: 'Consulta requerida' })
     }
 
-    // 🧠 1️⃣ Detectar intención
-    const intent = await classifyIntent(input)
+    // 🧠 Obtener historial
+    const history = getHistory(userId)
+
+    // 🧠 Detectar intención
+    const intent = await classifyIntent(input, history)
 
     console.log('Intent detectado:', intent)
+
+    // guardar pregunta en historial
+    history.push({
+      role: "user",
+      content: input
+    })
+
+    // mantener solo últimas 6 interacciones
+    if (history.length > 6) {
+      history.shift()
+    }
 
     let data = null
 
@@ -92,11 +118,12 @@ export const askAI = async (req, res) => {
 
           break
 
-          case 'SALES_OPPORTUNITIES':
 
-  data = await detectSalesOpportunities(req.conn)
+        case 'SALES_OPPORTUNITIES':
 
-break
+          data = await detectSalesOpportunities(req.conn)
+
+          break
 
 
         default:
@@ -150,7 +177,6 @@ break
 
     }
 
-
     // =============================
     // 🧠 ANALISIS EJECUTIVO IA
     // =============================
@@ -166,19 +192,21 @@ break
 
     }
 
+    // guardar respuesta en historial
+    history.push({
+      role: "assistant",
+      content: JSON.stringify(data)
+    })
 
     // =============================
     // 📤 RESPUESTA FINAL
     // =============================
 
     return res.json({
-
       intent,
       data,
       analysis
-
     })
-
 
   } catch (error) {
 

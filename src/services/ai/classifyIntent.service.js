@@ -1,6 +1,6 @@
 import { askOpenAI } from './OpenAIService.js'
 
-export async function classifyIntent(question) {
+export async function classifyIntent(question, history = []) {
 
   const systemPrompt = `
 Sos un clasificador de intención para un sistema de analítica y clientes.
@@ -24,6 +24,7 @@ Analytics:
 - BUNDLE_PRODUCTS
 - CLIENTS_FOR_PRODUCT
 - LIST_PRODUCTS_BY_MONTH
+- SALES_OPPORTUNITIES
 
 Clients:
 - search_clients
@@ -48,6 +49,8 @@ Analytics:
   aunque incluya una cantidad (ej: "dime 10 productos que se vendieron en enero"),
   clasificar como → LIST_PRODUCTS_BY_MONTH
 
+- Si la pregunta habla de detectar oportunidades de venta,
+  oportunidades comerciales o qué productos vender más → SALES_OPPORTUNITIES
 
 Clients:
 
@@ -89,6 +92,23 @@ EXTRACCIÓN DE PARÁMETROS
 
 Si un parámetro no existe → null.
 
+Ejemplo:
+
+Pregunta:
+Detecta oportunidades de venta
+
+Respuesta:
+
+{
+  "domain": "analytics",
+  "type": "SALES_OPPORTUNITIES",
+  "params": {
+    "month": null,
+    "year": null,
+    "product": null,
+    "limit": null
+  }
+}
 
 -------------------------
 FORMATO OBLIGATORIO
@@ -106,10 +126,21 @@ FORMATO OBLIGATORIO
 }
 `
 
-  const response = await askOpenAI({
-    system: systemPrompt,
-    user: question
-  })
+  const messages = [
+  {
+    role: "system",
+    content: systemPrompt
+  },
+  ...history,
+  {
+    role: "user",
+    content: question
+  }
+]
+
+const response = await askOpenAI({
+  messages
+})
 
   try {
     // 🔥 1️⃣ Limpiar markdown si viene ```json

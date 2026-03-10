@@ -14,14 +14,43 @@ const MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini'
 export async function askOpenAI({
   system,
   user,
+  messages,
   maxTokens = 300,
 }) {
+
+  let input = []
+
+  // 🧠 modo conversación
+  if (messages && Array.isArray(messages)) {
+    input = messages
+  }
+
+  // 🧠 modo simple
+  else {
+
+    if (system) {
+      input.push({
+        role: 'system',
+        content: system
+      })
+    }
+
+    if (user) {
+      input.push({
+        role: 'user',
+        content: user
+      })
+    }
+
+  }
+
+  if (input.length === 0) {
+    throw new Error("askOpenAI recibió mensajes vacíos")
+  }
+
   const response = await openai.responses.create({
     model: MODEL,
-    input: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
+    input,
     max_output_tokens: maxTokens,
   })
 

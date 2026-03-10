@@ -1,71 +1,52 @@
 export async function detectSalesOpportunities(conn) {
 
-  const SaleModel = conn.model('Sale')
+  const SaleCollection = conn.db.collection('sales')
 
-  // 1️⃣ Productos más vendidos
-  const topProducts = await SaleModel.aggregate([
-
-    { $unwind: '$products' },
+  const topProducts = await SaleCollection.aggregate([
 
     {
       $group: {
-        _id: '$products.product',
-        totalVendidos: { $sum: '$products.quantity' },
-        clientes: { $addToSet: '$client' }
+        _id: "$Articulo",
+        nombre: { $first: "$NombreArticulo" },
+        totalVendidos: { $sum: "$Cantidad" },
+        clientes: { $addToSet: "$Cliente" }
       }
     },
 
     {
       $project: {
-        product: '$_id',
+        articulo: "$_id",
+        nombre: 1,
         totalVendidos: 1,
-        totalClientes: { $size: '$clientes' }
+        totalClientes: { $size: "$clientes" }
       }
     },
 
     { $sort: { totalVendidos: -1 } },
 
-    { $limit: 10 }
+    { $limit: 20 }
 
-  ])
+  ]).toArray()
 
-  // 2️⃣ Traer info de productos
-  const ProductModel = conn.model('Product')
-
-  const enriched = []
+  const opportunities = []
 
   for (const p of topProducts) {
 
-    const product = await ProductModel.findById(p.product)
-
-    if (!product) continue
-
-    enriched.push({
-      nombre: product.nombre,
-      vendidos: p.totalVendidos,
-      clientes: p.totalClientes
-    })
-  }
-
-  // 3️⃣ Detectar oportunidades
-  const opportunities = []
-
-  for (const p of enriched) {
-
-    if (p.vendidos > 50 && p.clientes < 10) {
+    if (p.totalVendidos > 20 && p.totalClientes < 10) {
 
       opportunities.push({
-        type: 'market_expansion',
+        type: "market_expansion",
         product: p.nombre,
-        insight: `El producto ${p.nombre} tiene muchas ventas pero pocos clientes.`,
+        insight: `El producto ${p.nombre} tiene muchas ventas (${p.totalVendidos}) pero pocos clientes (${p.totalClientes}).`,
         recommendation: `Promocionar ${p.nombre} a nuevos clientes.`
       })
+
     }
 
   }
 
   return {
-    type: 'sales_opportunities',
+    type: "sales_opportunities",
     opportunities
   }
 
