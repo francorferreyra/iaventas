@@ -229,7 +229,8 @@ export async function listProductsByMonth(conn, month, year, limit = 20) {
       $group: {
         _id: {
           codigo: '$CodigoAlternativo1',
-          nombre: '$NombreArticulo'
+          nombre: '$NombreArticulo',
+          clase: '$NombreClase'
         }
       }
     },
@@ -240,7 +241,8 @@ export async function listProductsByMonth(conn, month, year, limit = 20) {
       $project: {
         _id: 0,
         codigo: '$_id.codigo',
-        nombre: '$_id.nombre'
+        nombre: '$_id.nombre',
+        clase: '$_id.clase'
       }
     }
   ]
