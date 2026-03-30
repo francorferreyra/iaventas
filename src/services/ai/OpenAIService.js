@@ -15,7 +15,7 @@ export async function askOpenAI({
   system,
   user,
   messages,
-  maxTokens = 300,
+  maxTokens = 800,
 }) {
 
   let input = []

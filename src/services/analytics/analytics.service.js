@@ -6,7 +6,8 @@ import mongoose from 'mongoose'
  * 1️⃣ Producto más vendido en un mes
  * @param {string} month - MM (01–12)
  */
-export async function getTopProductsByMonth(conn, month, year) {
+export async function getTopProductsByMonth(conn, month, year, clase = null) {
+
   if (!month) throw new Error('Mes requerido')
   if (!conn) throw new Error('Conexión requerida')
 
@@ -14,6 +15,7 @@ export async function getTopProductsByMonth(conn, month, year) {
     conn.models.Sale || conn.model('Sale', SaleSchema)
 
   const monthInt = parseInt(month, 10)
+
   const pipeline = []
 
   pipeline.push({
@@ -23,10 +25,19 @@ export async function getTopProductsByMonth(conn, month, year) {
     }
   })
 
-  const matchStage = { month: monthInt }
+  const matchStage = {
+    month: monthInt
+  }
 
   if (year) {
     matchStage.year = parseInt(year, 10)
+  }
+
+  if (clase) {
+    matchStage.NombreClase = {
+      $regex: clase,
+      $options: 'i'
+    }
   }
 
   pipeline.push({ $match: matchStage })
@@ -34,13 +45,27 @@ export async function getTopProductsByMonth(conn, month, year) {
   pipeline.push(
     {
       $group: {
-        _id: '$NombreArticulo',
+        _id: {
+          nombre: '$NombreArticulo',
+          clase: '$NombreClase',
+          codigo: '$CodigoAlternativo1'
+        },
         totalVendido: { $sum: '$Cantidad' },
         totalFacturado: { $sum: '$Total' }
       }
     },
     { $sort: { totalVendido: -1 } },
-    { $limit: 10 }
+    { $limit: 10 },
+    {
+      $project: {
+        _id: 0,
+        nombre: '$_id.nombre',
+        clase: '$_id.clase',
+        codigo: '$_id.codigo',
+        totalVendido: 1,
+        totalFacturado: 1
+      }
+    }
   )
 
   return await SaleModel.aggregate(pipeline)

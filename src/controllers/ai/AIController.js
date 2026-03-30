@@ -68,11 +68,12 @@ export const askAI = async (req, res) => {
 
         case 'TOP_PRODUCTS_BY_MONTH':
 
-          data = await getTopProductsByMonth(
-            req.conn,
-            intent.params?.month,
-            intent.params?.year
-          )
+        data = await getTopProductsByMonth(
+  req.conn,
+  intent.params?.month,
+  intent.params?.year,
+  intent.params?.clase
+)
 
           break
 

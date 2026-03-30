@@ -5,18 +5,22 @@ export async function classifyIntent(question, history = []) {
   const systemPrompt = `
 Sos un clasificador de intención para un sistema de analítica y clientes.
 
-Tu única tarea es clasificar la intención y extraer parámetros.
-NO respondas la pregunta.
-NO expliques nada.
-NO agregues texto adicional.
+Tu única tarea es:
+1) Clasificar la intención
+2) Extraer parámetros
+
 Respondé SOLO JSON válido.
 
-Dominios posibles:
+-------------------------
+DOMINIOS
+-------------------------
 - analytics
 - clients
 - unknown
 
-Tipos posibles:
+-------------------------
+TIPOS
+-------------------------
 
 Analytics:
 - TOP_PRODUCTS_BY_MONTH
@@ -37,81 +41,64 @@ REGLAS DE CLASIFICACIÓN
 
 Analytics:
 
-- Si la pregunta pide el producto más vendido en un mes → TOP_PRODUCTS_BY_MONTH
+- Si la pregunta menciona:
+  "producto más vendido", "productos más vendidos",
+  "ranking", "top", "los que más se venden"
+  (aunque diga "listado" o "listar")
+  → TOP_PRODUCTS_BY_MONTH
 
-- Si habla de promocionar, impulsar, recomendar o mejorar ventas → PRODUCTS_TO_PROMOTE
+- Si la pregunta pide listar productos vendidos en un mes
+  y NO menciona ranking ni "más vendidos"
+  → LIST_PRODUCTS_BY_MONTH
 
-- Si habla de productos que se venden juntos o combos → BUNDLE_PRODUCTS
+- Si habla de promocionar, impulsar o mejorar ventas
+  → PRODUCTS_TO_PROMOTE
 
-- Si habla de clientes para ofrecer un producto específico → CLIENTS_FOR_PRODUCT
+- Si habla de productos que se venden juntos o combos
+  → BUNDLE_PRODUCTS
 
-- Si la pregunta pide listar, mostrar, dar o mencionar productos vendidos en un mes,
-  aunque incluya una cantidad (ej: "dime 10 productos que se vendieron en enero"),
-  clasificar como → LIST_PRODUCTS_BY_MONTH
+- Si habla de clientes para ofrecer un producto
+  → CLIENTS_FOR_PRODUCT
 
-- Si la pregunta habla de detectar oportunidades de venta,
-  oportunidades comerciales o qué productos vender más → SALES_OPPORTUNITIES
+- Si habla de oportunidades de venta
+  → SALES_OPPORTUNITIES
 
 Clients:
 
-- Si habla de buscar clientes → search_clients
-- Si habla de recomendar productos a clientes → recommend_products
-- Si pide ideas de campaña → campaign_idea
+- Buscar clientes → search_clients
+- Recomendar productos → recommend_products
+- Ideas de campaña → campaign_idea
 
-
-Si no coincide claramente con ninguna regla → unknown.
-
+Si no coincide → unknown
 
 -------------------------
 EXTRACCIÓN DE PARÁMETROS
 -------------------------
 
-- Si se menciona un mes (enero a diciembre),
-  devolverlo en formato "01" a "12".
+- Mes → "01" a "12"
+  (enero=01, febrero=02, marzo=03, etc.)
 
-  Enero = "01"
-  Febrero = "02"
-  Marzo = "03"
-  Abril = "04"
-  Mayo = "05"
-  Junio = "06"
-  Julio = "07"
-  Agosto = "08"
-  Septiembre = "09"
-  Octubre = "10"
-  Noviembre = "11"
-  Diciembre = "12"
+- Año → "YYYY"
 
-  Reconocer meses aunque estén en mayúscula o minúscula.
+- Número de resultados → "limit"
 
-- Si se menciona un año (ej: 2023, 2024),
-  devolverlo como "YYYY".
+- Producto → "product"
 
-- Si se menciona un número asociado a cantidad de productos (ej: 5, 10, 20),
-  devolverlo como "limit".
+- Clase:
+  Si aparece un nombre propio que NO es un producto,
+  asumir que es clase/marca/proveedor.
 
-Si un parámetro no existe → null.
+  Ejemplos:
+  "Nelso Ferreyra S.R.L"
+  "Perkins"
+  "Castellano"
 
-Ejemplo:
+  → devolver en "clase"
 
-Pregunta:
-Detecta oportunidades de venta
-
-Respuesta:
-
-{
-  "domain": "analytics",
-  "type": "SALES_OPPORTUNITIES",
-  "params": {
-    "month": null,
-    "year": null,
-    "product": null,
-    "limit": null
-  }
-}
+Si no existe → null
 
 -------------------------
-FORMATO OBLIGATORIO
+FORMATO
 -------------------------
 
 {
@@ -121,35 +108,99 @@ FORMATO OBLIGATORIO
     "month": "MM o null",
     "year": "YYYY o null",
     "product": "string o null",
+    "clase": "string o null",
     "limit": number o null
+  }
+}
+
+-------------------------
+EJEMPLOS
+-------------------------
+
+Input: "dame los 10 productos más vendidos de marzo"
+Output:
+{
+  "domain": "analytics",
+  "type": "TOP_PRODUCTS_BY_MONTH",
+  "params": {
+    "month": "03",
+    "year": null,
+    "product": null,
+    "clase": null,
+    "limit": 10
+  }
+}
+
+Input: "dame un listado de los productos más vendidos de marzo"
+Output:
+{
+  "domain": "analytics",
+  "type": "TOP_PRODUCTS_BY_MONTH",
+  "params": {
+    "month": "03",
+    "year": null,
+    "product": null,
+    "clase": null,
+    "limit": null
+  }
+}
+
+Input: "dime los productos más vendidos de nelso ferreyra s.r.l"
+Output:
+{
+  "domain": "analytics",
+  "type": "TOP_PRODUCTS_BY_MONTH",
+  "params": {
+    "month": null,
+    "year": null,
+    "product": null,
+    "clase": "NELSO FERREYRA S.R.L",
+    "limit": null
+  }
+}
+
+Input: "listame productos de marzo"
+Output:
+{
+  "domain": "analytics",
+  "type": "LIST_PRODUCTS_BY_MONTH",
+  "params": {
+    "month": "03",
+    "year": null,
+    "product": null,
+    "clase": null,
+    "limit": null
   }
 }
 `
 
   const messages = [
-  {
-    role: "system",
-    content: systemPrompt
-  },
-  ...history,
-  {
-    role: "user",
-    content: question
-  }
-]
+    {
+      role: "system",
+      content: systemPrompt
+    },
+    ...history,
+    {
+      role: "user",
+      content: question
+    }
+  ]
 
-const response = await askOpenAI({
-  messages
-})
+  const response = await askOpenAI({
+    messages
+  })
+
+  console.log("Respuesta IA RAW:", response)
+console.log("Tipo:", typeof response)
 
   try {
-    // 🔥 1️⃣ Limpiar markdown si viene ```json
+
+    // limpiar markdown
     let clean = response
       .replace(/```json/g, '')
       .replace(/```/g, '')
       .trim()
 
-    // 🔥 2️⃣ Extraer solo el JSON válido
     const firstBrace = clean.indexOf('{')
     const lastBrace = clean.lastIndexOf('}')
 
@@ -168,11 +219,13 @@ const response = await askOpenAI({
         month: parsed.params?.month || null,
         year: parsed.params?.year || null,
         product: parsed.params?.product || null,
+        clase: parsed.params?.clase || null,
         limit: parsed.params?.limit || null
       }
     }
 
   } catch (error) {
+
     console.error('Error parseando intent IA:', response)
 
     return {
@@ -182,6 +235,7 @@ const response = await askOpenAI({
         month: null,
         year: null,
         product: null,
+        clase: null,
         limit: null
       }
     }
