@@ -48,7 +48,7 @@ export async function recommendProductsAI(conn, query) {
     }
   }
 
-  // 🔥 FILTRO HERTRAC (precio > 0)
+  // FILTRO HERTRAC (precio > 0)
 
   const validProducts = await filterValidProducts(
     topProducts.map(p => p.product.cod)
@@ -66,7 +66,7 @@ export async function recommendProductsAI(conn, query) {
     }
   }
 
-  // 🔹 MODO PRODUCTOS
+  // MODO PRODUCTOS
   if (mode === 'products') {
 
     return {
@@ -81,7 +81,7 @@ export async function recommendProductsAI(conn, query) {
     }
   }
 
-  // 🔹 MODO CAMPAÑA
+  // MODO CAMPAÑA
   if (mode === 'campaign') {
 
     const campaignPrompt = `

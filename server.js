@@ -19,7 +19,7 @@ async function bootstrap() {
     await connectMongo()
 
     // ✅ Iniciar CRON
-    startClientsSyncJob()
+    // startClientsSyncJob()
 
     // ✅ Rutas
     app.use("/api/clients", clientsRoutes)

@@ -17,7 +17,7 @@ export async function getClientMetricsWithInsights(
   const metricsQuery = {}
 
   // ===============================
-  // 📊 FILTROS EXISTENTES
+  // FILTROS EXISTENTES
   // ===============================
 
   if (filters.diasSinComprarMin != null) {
@@ -35,7 +35,7 @@ export async function getClientMetricsWithInsights(
   }
 
   // ===============================
-  // 🧠 FILTROS PARA PINECONE
+  // FILTROS PARA PINECONE
   // ===============================
 
   if (filters.needsVector === true) {
@@ -49,7 +49,7 @@ export async function getClientMetricsWithInsights(
   }
 
   // ===============================
-  // 🔥 QUERY PRINCIPAL
+  // QUERY PRINCIPAL
   // ===============================
 
   const query = ClientMetrics.find(metricsQuery)
@@ -66,7 +66,7 @@ export async function getClientMetricsWithInsights(
   if (!metrics.length) return []
 
   // ===============================
-  // 🔎 INSIGHTS
+  // INSIGHTS
   // ===============================
 
   const ids = metrics.map(c => c._id)

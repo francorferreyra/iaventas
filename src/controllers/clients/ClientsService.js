@@ -19,7 +19,7 @@ export async function buildClientsResponse(conn,
     ? { [sortBy]: sortOrder }
     : null
 
-  // 🔥 SIN conn
+  // SIN conn
   const rawData = await getClientMetricsWithInsights(conn,{
     limit,
     skip,

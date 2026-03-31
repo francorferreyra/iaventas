@@ -1,4 +1,3 @@
-// controllers/sales/SalesRead.js
 import Sale from "../../models/SaleModel.js";
 
 export const getSales = async (req, res) => {

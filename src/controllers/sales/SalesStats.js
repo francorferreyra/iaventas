@@ -104,7 +104,6 @@ export const topCustomers = async (req, res) => {
 
 // -----------------------------------------------------------------------------
 // Ventas agrupadas por provincia
-// (cambia "Provincia" por el campo real en tu modelo si es distinto)
 // -----------------------------------------------------------------------------
 export const salesByProvince = async (req, res) => {
   try {

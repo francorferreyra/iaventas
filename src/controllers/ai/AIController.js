@@ -15,7 +15,7 @@ import { generateExecutiveAnalysis } from '../../services/ai/generateExecutiveAn
 import { detectSalesOpportunities } from '../../services/analytics/detectSalesOpportunities.service.js'
 
 
-// 🧠 Memoria simple de conversaciones
+// Memoria simple de conversaciones
 const conversations = new Map()
 
 function getHistory(userId) {
@@ -37,10 +37,10 @@ export const askAI = async (req, res) => {
       return res.status(400).json({ msg: 'Consulta requerida' })
     }
 
-    // 🧠 Obtener historial
+    // Obtener historial
     const history = getHistory(userId)
 
-    // 🧠 Detectar intención
+    // Detectar intención
     const intent = await classifyIntent(input, history)
 
     console.log('Intent detectado:', intent)
@@ -59,7 +59,7 @@ export const askAI = async (req, res) => {
     let data = null
 
     // =============================
-    // 📊 ANALYTICS DOMAIN
+    // ANALYTICS DOMAIN
     // =============================
 
     if (intent.domain === 'analytics') {
@@ -139,7 +139,7 @@ export const askAI = async (req, res) => {
     }
 
     // =============================
-    // 👥 CLIENT DOMAIN
+    // CLIENT DOMAIN
     // =============================
 
     else if (intent.domain === 'clients') {
@@ -179,7 +179,7 @@ export const askAI = async (req, res) => {
     }
 
     // =============================
-    // 🧠 ANALISIS EJECUTIVO IA
+    //  ANALISIS EJECUTIVO IA
     // =============================
 
     let analysis = null
@@ -200,7 +200,7 @@ export const askAI = async (req, res) => {
     })
 
     // =============================
-    // 📤 RESPUESTA FINAL
+    // RESPUESTA FINAL
     // =============================
 
     return res.json({
